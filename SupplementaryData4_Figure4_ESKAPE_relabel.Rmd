@@ -1,0 +1,284 @@
+---
+title: "Figure 4 - Regional spread of Candid auris"
+author: "Diana Proctor"
+date: "5/17/2022"
+output: html_document
+---
+***
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+*draft: submission to Nature, August 2023*
+
+*Manuscript Title*: Fungal Candida auris and bacterial ESKAPE pathogens:  Human skin as a reservoir for transmissible microbes and antibiotic resistance in nursing homes
+
+*Authors*: Diana M. Proctor 1, Sarah E Sansom2, Clay Deming1, Sean Conlan1, Ryan A Blaustein1,3, Thomas K. Atkins1,4, NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+ and Julia A. Segre 1+
+
+*Affiliations*:
+
+1Microbial Genomics Section, Translational and Functional Genomics Branch, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA
+
+2 Department of Internal Medicine, Division of Infectious Diseases, Rush University Medical Center, Chicago, IL 60612, USA.
+
+3 Current Address: Department of Nutrition and Food Science, University of Maryland, College Park, MD 20742, USA
+
+4 Current Address: Department of Quantitative and Computational Biology, Princeton University, Princeton, NJ
+
+5 NIH Intramural Sequencing Center, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA.
+
+6 Dermatology Branch, National Institute of Arthritis and Musculoskeletal and Skin Diseases, National Institutes of Health, Bethesda, MD 20892, USA
+
+
++Contributed equally
+
+---
+***
+The input for this is the following files, generated using the mags.sh script:
+
+1. 3_way_masked_adqia_masked.vcf.gz, snp calls,  intersection of bctools, gatk, and freebayes
+2. metadata_colors.csv, mapping file for the isolate genomes
+3. longMatrixTreeDist_clean.csv, generated in chunk 7 subsetted down onto just our samples
+
+This script will generate the following plots:
+
+1. figure 4
+2. supplementary figure 13
+
+
+```{r global_options}
+library(knitr)
+opts_chunk$set(fig.width=12, fig.height=8, 
+               echo=TRUE, warning=FALSE, message=FALSE, error = FALSE)
+```
+
+
+load libraries
+```{r}
+packages <- c("knitr", 
+              "vcfR", 
+              "ggplot2", 
+              "tidyverse", 
+              "colorspace", 
+              "scales",
+              "ape",
+              "ggtree",
+              "Biostrings",
+              "adegenet",
+              "poppr",
+              "pegas",
+              "dendextend",
+              "cowplot",
+              "ggpubr",
+              "ComplexHeatmap",
+              "reshape2",
+              "TreeDist",
+              "phylogram",
+              "cetcolor",
+              "phylotools")
+n <- length(packages) - sum(sapply(packages,require,character.only=TRUE))
+```
+
+
+
+
+
+### Figure 4A: make a phylogenetic tree of the candida auris isolate genomes
+
+```{r}
+#let's read in the phylogeny generated with IqTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/3_way_masked_adqia_masked_fm3.min4.phy.contree")
+
+tre2 =  phytools::midpoint.root(tre)
+write.tree(tre2, file = "~/Desktop/3_way_masked_adqia_masked_fm3.min4.phy_newick_midpoint.tre", append = FALSE,
+digits = 10, tree.names = FALSE)
+
+#let's read in the metadata
+mydat = read.csv("~/Desktop/NATURE/Figure4/metadata_colors.csv") %>%
+  dplyr::select(., c("new_label", "color"))
+colnames(mydat)[1]  = "rg"
+
+
+#first we plot the tree
+p1 = ggtree(tre2)+ theme_tree2() + geom_tiplab(as_ylab=TRUE, color='black', size=2)
+
+#I modified this function ever so slightly. plot.tree is the work of Thomas Atkins. 
+#It plots the phylogenetic tree given as input using ggtree.
+plot.tree <- function(tree, metadata) {
+    # it will give a lot of messages about plotting the tree,
+    # so we use suppressMessages
+    suppressMessages(
+        g <- ggtree(tree) + theme_tree2() + geom_tiplab(as_ylab=TRUE, color='black')
+    )
+    #if we have metadata, color the tips of the trees appropriately
+    # https://yulab-smu.top/treedata-book/chapter7.html?q=%3C+#attach-operator
+    if (!is.null(metadata)) {
+        colors <- replace(metadata$color, metadata$color=="", "red")
+        names(colors) <- colors
+        g <- g %<+% 
+            data.frame(tip=metadata$rg, col=metadata$color) + 
+            geom_tiplab(as_ylab=TRUE, color='black', size=5) +
+            geom_tippoint(aes(color=col), show.legend = FALSE) +
+            scale_color_manual(values=colors, na.value="black") 
+    }
+    return (g)
+}
+
+p2 = plot.tree(tree=tre2, metadata = mydat) 
+
+
+```
+
+
+
+### generate figure 4: let's just make the heatmap in ggplot since the above heatmap is not clustered and hard to read
+Figure 4: Regional spread, personalized diversification, and sharing of C. auris among nursing home roommates. a) phylogenetic tree based on SNP positions identified in C. auris isolate genomes. Color of points correspond to unique nursing home residents or geographic location for reference genomes. Samples from facility A (acute care hospital 1), B (long term care facility 1), C (acute care hospital 2) and D (v-SNF, this study) are indicated with prefix labels. D1 denotes subjects from Room 1 (subjects 5, 14, 15, and 23) while D2 denotes subjects in room 2 (subjects 2,4,28, and 48). The heatmap adjacent to the tree is the SNP matrix with rows ordered according to phylogeny and columns hierarchically clustered to highlight SNPs shared among isolates. Black corresponds to positions that vary with respect to the reference. 
+```{r}
+# vcfR
+consensus3way = read.vcfR("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/3_way_masked_adqia_masked_fm3.vcf.gz", verbose=FALSE) 
+consensus3way <- addID(consensus3way) #765
+gt <- extract.gt(consensus3way, element = "GT")
+
+#get the tip labels
+#these 2 lines are from Thomas Atkins, the summer intern extraordinaire
+dd <- subset(fortify(tre), isTip)
+    order <- dd$label[order(dd$y, decreasing=T)]
+
+#let's set no calls equal to 0
+M = data.frame(t(gt))
+M[is.na(M)] <- 0
+
+#let's order the rows of the matrix based on the tree order
+new_dataset <- M[match(order, rownames(M)), ]    
+
+M = data.matrix(new_dataset, rownames.force = NA)
+names = rownames(M)
+
+
+#let's make the SNP heatmap
+
+p3 = Heatmap(M, cluster_rows = FALSE,show_row_dend = FALSE, show_column_dend = FALSE, row_names_gp = grid::gpar(fontsize = 0),
+        show_column_names = FALSE, show_heatmap_legend = FALSE, col=c("white", "black"))
+
+gb<-grid.grabExpr(draw(p3))
+Fig4 = plot_grid(p2, gb, nrow = 1, rel_heights = c(1, 1), ncol = 2, rel_widths = c(1, 2), labels="A")
+Fig4
+ggsave(Fig4, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Figure4_bigfont.pdf", device="pdf", width = 7, height = 8)
+```
+
+### Supplementary Figure 13B: let's look at within subject vs. between subject SNP distributions
+```{r, fig.height=4, fig.width=4}
+#read in the vcf, taken as an intersection of GATK, freebayes and bcftools
+myvcf = read.vcfR("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/3_way_masked_adqia_masked_fm2.vcf.gz")
+#convert to genlight objects
+vcf.x <- vcfR2genlight(myvcf)
+ploidy(vcf.x) <- 1
+
+
+#calculate hamming distancee
+snpdist <- poppr::bitwise.dist(vcf.x, percent=FALSE) #calculates hamming distance
+snpdist = data.frame(as.matrix(snpdist))
+
+#let's bring in the sample map and annotate the rows
+mapping_file = read.csv("~/Desktop/NATURE/Figure4/metadata_colors.csv") %>%
+  dplyr::select(., c("new_label", "Subject", "Sample", "Body.Site", "room"))
+colnames(mapping_file)[1] = "rg"
+
+#melt the distance matrix
+snpdist$sample1 = rownames(snpdist)
+dfm = reshape2::melt(snpdist, id.vars=c("sample1"))
+colnames(dfm)[2] = "sample2"
+
+#now let's merge the mapping files with the melted distance matrix
+map1 = mapping_file
+colnames(map1) = c("sample1", "subject1", "J1", "site1", "room1")
+map2 = mapping_file
+colnames(map2) = c("sample2", "subject2", "J2", "site2", "room2")
+
+#now let's add the sample metadata to the melted data frame
+sampleDF = plyr::join(dfm, map1) %>%
+        plyr::join(., map2)
+
+#drop samples that are the same in sample1 and sample2
+sampleDF1 = subset(sampleDF, sample1 != sample2)
+
+#now let's annotate whether the sample1 and sample2 are from the same or different subjects
+sampleDF1$is.same.subject = ifelse(sampleDF1$subject1==sampleDF1$subject2, "yes", "no")
+
+mydf = subset(sampleDF1, sample1 != sample2) %>%
+  subset(., is.same.subject %in% c("yes", "no"))
+
+
+mysummary = doBy::summary_by(value~is.same.subject, FUN=c(mean, median, length), data=mydf)
+
+SuppFig13B = ggplot(mydf, aes(is.same.subject, value)) + 
+  geom_violin() + theme_classic() + stat_compare_means()+ theme(legend.position = "none")  + 
+  stat_summary(fun = "mean",
+               geom = "point",
+               color = "red",
+               size=2) + ylab("Hamming Distance")+ xlab("Is same subject?")
+  
+SuppFig13B
+
+```
+
+
+### Supplementary Figure 13C: make a plot of roomie comparisons
+```{r, fig.height=4, fig.width=4}
+sampleDF2 = subset(sampleDF1, room1 %in% c("D1", "D2")) %>%
+  subset(., room2 %in% c("D1", "D2"))
+sampleDF2$is.roomie = ifelse(sampleDF2$room1==sampleDF2$room2, "yes", "no")
+SuppFig13C = ggplot(sampleDF2, aes(is.roomie, value)) + theme_classic() + stat_compare_means() + geom_boxplot() + 
+  stat_summary(fun = "mean",
+               geom = "point",
+               color = "black",
+               size=2) + ylab("Hamming Distance") + xlab("Is roommate?")
+
+
+SuppFig13C
+
+```
+
+let's look at the tree distance for individual subjects
+```{r}
+mytredist = adephylo::distTips(
+  tre,
+  tips = "all",
+  method =  "sumDD",
+  useC = TRUE)
+
+M = as.matrix(mytredist)
+M[lower.tri(M)] <- NA
+M = data.frame(M)
+M$rows = rownames(M)
+longM = reshape2::melt(M, id.vars="rows")
+#write.csv(longM, file="~/Desktop/longMatrixTreeDist.csv") #subset on just our samples
+df = read.csv("~/Desktop/NATURE/Figure4/longMatrixTreeDist_clean.csv")
+df$Sub1 = stringr::str_sub(df$rows, 1, 5)
+df$Sub2 = stringr::str_sub(df$variable, 1, 5)
+df$is.same.sub = ifelse(df$Sub1==df$Sub2, "yes", "no")
+
+sameSub = subset(df, is.same.sub=="yes")
+sameSub$Sub1 = stringr::str_remove_all(sameSub$Sub1, "_")
+
+ordering = c("Sub2", "Sub4","Sub5", "Sub14", "Sub15",
+               "Sub23", "Sub28",  "Sub35" ,  "Sub46", "Sub48"  , "Sub53")
+
+sameSub$Sub1 <- factor(sameSub$Sub1, levels = ordering)
+
+p = ggplot(sameSub, aes(Sub1, value)) + geom_point() 
+SuppFig13A = ggplot(sameSub, aes(value)) + 
+  geom_histogram() + 
+  facet_wrap(~Sub1, scales="free_y", ncol=1) + 
+  theme_classic() + ylab("Count") + xlab("Tree Distance")+ 
+  theme(axis.text.x = element_text(size=6),
+          axis.text.y = element_text(size=6))
+
+#let's save supplementary figure 12
+Fig13C_Left = cowplot::plot_grid(SuppFig13A, labels="A")
+Fig13C_Right = cowplot::plot_grid(SuppFig13B, SuppFig13C, ncol= 1, labels=c("B", "C"))
+Fig13C = cowplot::plot_grid(Fig13C_Left, Fig13C_Right, ncol=2)
+Fig13C
+ggsave(Fig13C, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure13.png", device="png", width = 8, height = 10)
+```
+
+

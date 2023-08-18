@@ -1,0 +1,835 @@
+---
+title: "Figure 3: Widespread sharing of strains in this Nursing Home"
+author: "Diana Proctor"
+date: "6/2/2022"
+output: html_document
+---
+***
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+*draft: submission to Nature, August 2023*
+
+*Manuscript Title*: Fungal Candida auris and bacterial ESKAPE pathogens:  Human skin as a reservoir for transmissible microbes and antibiotic resistance in nursing homes
+
+*Authors*: Diana M. Proctor 1, Sarah E Sansom2, Clay Deming1, Sean Conlan1, Ryan A Blaustein1,3, Thomas K. Atkins1,4, NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+ and Julia A. Segre 1+
+
+*Affiliations*:
+
+1Microbial Genomics Section, Translational and Functional Genomics Branch, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA
+
+2 Department of Internal Medicine, Division of Infectious Diseases, Rush University Medical Center, Chicago, IL 60612, USA.
+
+3 Current Address: Department of Nutrition and Food Science, University of Maryland, College Park, MD 20742, USA
+
+4 Current Address: Department of Quantitative and Computational Biology, Princeton University, Princeton, NJ
+
+5 NIH Intramural Sequencing Center, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA.
+
+6 Dermatology Branch, National Institute of Arthritis and Musculoskeletal and Skin Diseases, National Institutes of Health, Bethesda, MD 20892, USA
+
+
++Contributed equally
+
+---
+***
+The input for this is the following files, generated using the mags.sh script:
+
+
+
+
+1. select_species_fastani_eukprok_megahit.txt, the ANI results for all species aggregated
+2. gtdbtk.arcbaceuk_nature.summary_withabx.csv, which is a blend of the GATK taxonomic output (generated from mags.sh) and the mash/mummer output (generated from mags.sh); I manually concatenated these two taxonomy files
+3. mapping_file_2022-08-15_v4.1.csv, the metadata for the shotgun data
+4. kleb_gtree_out.tre, the klebsiella tree output from gototree
+5. tree.tip.labels_klebsiella.csv, STs identified by Sean Conlan
+6. species-specific ANI output
+7. species-specific snippy output
+8. species-specific gototree output
+
+This script will generate the following plots:
+
+1. Figure 3
+2. Supplementary Figures 4-12
+3. Supplementary Table 8
+
+
+
+
+First let's load needed R packages.
+```{r, echo=FALSE}
+#set global knitting options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE, fig.width = 12, fig.height = 7)
+```
+
+
+
+```{r, echo=FALSE}
+# load package method from from Dan Sprokett
+
+# set seed
+set.seed(78979)
+#define packages
+packages <- c("knitr", 
+              "vcfR", 
+              "ANCOMBC",
+              "ggplot2", 
+              "tidyverse", 
+              "colorspace", 
+              "kableExtra", 
+              "gridExtra", 
+              "scales",
+              "refGenome",
+              "RColorBrewer",
+              "ape",
+              "ggtree",
+              "ape",
+              "Biostrings",
+              "vcfR",
+              "adegenet",
+              "poppr",
+              "pegas",
+              "dendextend",
+              "cowplot",
+              "ggpubr",
+              "ComplexHeatmap",
+              "phyloseq",
+              "reshape2",
+              "phangorn",
+              "phytools",
+              "ggtree",
+              "confintr")
+# install packages from bioconductor
+BiocManager::install(setdiff(packages,installed.packages()), update=FALSE)
+n <- length(packages) - sum(sapply(packages,require,character.only=TRUE))
+
+# print if packages loaded properly
+if(n == 0){
+  print("All necessary R packages loaded properly")
+} else {
+  print(paste0(n, " R packages did not load properly"))
+}
+```
+
+define some color palettes
+```{r}
+
+modified_colours=c("Candida auris"= "#BC80BD",
+      "Malassezia spp."= "#BEBADA" ,
+      "Malassezia slooffiae"="violet", 
+      "P. aeruginosa"="#C51B7D",
+      "P. mirabilis"="#E9A3C9",
+      "P. stuartii"=  "#FDE0EF"  ,
+      "E. coli"="#E6F5D0"   ,
+      "E. faecalis"="#E6F5D0"  ,
+      "A. baumannii"="#A1D76A" ,
+      "M. morganii"="#8B8000" ,
+      "K. pneumoniae" = "#4D9221", 
+      "S. aureus" = "#329D9C" ,
+      "s__Corynebacterium striatum"  ="#56C596",
+      "s__Corynebacterium aurimucosum_E"="#7BE495" ,
+      "s__Staphylococcus pettenkoferi" = "gray",
+      "Other"="#85C1E9" ) 
+
+
+mycolors=c("Candida auris"= "#8B008B",
+      "Malassezia spp."= "#BEBADA" ,
+      "Malassezia slooffiae"="#BC80BD", 
+      "Pseudomonas aeruginosa"="#C51B7D",
+      "Proteus mirabilis"="#FB8072",
+      "Providencia stuartii"=  "#FDB462"  ,
+      "Escherichia coli"="#737000"   ,
+      "Enterococcus faecalis"="#E6F5D0"  ,
+      "Acinetobacter baumannii"="#A1D76A" ,
+      "Morganella morganii"="#32612D" ,
+      "Klebsiella pneumoniae" = "#0D52BD", 
+      "Staphylococcus aureus" = "#329D9C" ,
+      "Staphylococcus pettenkoferi" = "gray")
+
+mycolors1=c("C. auris"= "#8B008B",
+      "M. spp."= "#BEBADA" ,
+      "M. slooffiae"="#BC80BD", 
+      "P. aeruginosa"="#C51B7D",
+      "P. mirabilis"="#FB8072",
+      "P. stuartii"=  "#FDB462"  ,
+      "E. coli"="#737000"   ,
+      "E. faecalis"="#E6F5D0"  ,
+      "A. baumannii"="#A1D76A" ,
+      "M. morganii"="#32612D" ,
+      "K. pneumoniae" = "#0D52BD", 
+      "S. aureus" = "#329D9C" ,
+      "S. pettenkoferi" = "gray")
+
+
+mypal =c("#5A5156","#16FF32","#1C7F93","#1C8356","#1CBE4F",
+"#90AD1C","#1CFFCE","#2ED9FF","#325A9B","#3283FE","#3B00FB",
+"#66B0FF","#683B79","#782AB6","#7ED7D1","#822E1C","#85660D",
+"#AA0DFE","#AAF400","#B00068","#B10DA1","#B5EFB5","#BDCDFF",
+"#C075A6","#C4451C","#D85FF7","#DEA0FD","#E4E1E3","#F6222E",
+"#F7E1A0","#F8A19F","#FA0087","#FBE426","#FC1CBF","#FE00FA", 
+"#FEAF16", "firebrick", "darkgreen", "yellow", "orange", "black")
+
+```
+
+### get the MAGs for the select species
+```{r}
+taxa_of_interest = c("Candida auris" ,
+      "s__Escherichia coli",
+      "s__Enterococcus faecalis",
+     "s__Klebsiella pneumoniae" ,
+     "s__Acinetobacter baumannii",
+      "s__Pseudomonas aeruginosa",
+      "s__Pseudomonas aeruginosa_A",
+      "s__Proteus mirabilis",
+      "s__Providencia stuartii",
+      "s__Staphylococcus pettenkoferi",
+     "s__Staphylococcus aureus")
+
+```
+
+
+### Let's look at ANI across all species
+Read in the data and take a look at it. This file was generated on biowulf following the tutorial here: https://github.com/ParBLiSS/FastANI. This is a data frame with 5 columns. First, we plot an ANI histogram, summarizing over the complete dataset. We clearly have a bimodal distribution with two peaks, one at 99%ANI and one at less than 80% ANI.
+
+```{r, fig.height=4, fig.width=4}
+#read the data
+ani <- read.table("~/Desktop/NATURE/22_ANI/select_species_fastani_eukprok_megahit.txt")
+colnames(ani) = c("MAG1", "MAG2", "ANI", "F1", "F2")
+
+### clean the data up by removing .fa so we can merge with the gtdbk results
+ani$MAG1 = stringr::str_remove_all(ani$MAG1, ".fa")
+ani$MAG2 = stringr::str_remove_all(ani$MAG2, ".fa")
+
+#create a matrix out of the ANI data
+matrix <- acast(ani, MAG1~MAG2, value.var="ANI")
+matrix[is.na(matrix)] <- 70
+
+
+# plot the ANI histograms
+df = subset(ani, MAG1 != MAG2)
+p = ggplot(df, aes(ANI)) + geom_histogram()
+p
+```
+
+### let's look at the distribution of ANI
+
+let's annotate the ANI output with the taxonomic information of the MAGs and plot ANI by species.
+Histograms of pairwise Average nucleotide identity (ANI) for MAGs recovered from shotgun metagenomic data for each species. Colors correspond to each select species. 
+```{r}
+#mege MAG1 taxonomic information
+tax =read.csv("~/Desktop/NATURE/taxonomy/gtdbtk.arcbaceuk_nature.summary_withabx.csv") %>% 
+  dplyr::select(., c("user_genome",  "phylum", "class","order", 
+                  "family","genus", "species"))
+  colnames(tax) = c("MAG1", "phylum1", "class1","order1", 
+                  "family1","genus1", "species1")
+  tax1 = merge(df, tax)
+
+#merge MAG2 taxonomic information
+tax =read.csv("~/Desktop/NATURE/taxonomy/gtdbtk.arcbaceuk_nature.summary_withabx.csv") %>% 
+  dplyr::select(., c("user_genome",  "phylum", "class","order", 
+                  "family","genus", "species"))
+  colnames(tax) = c("MAG2", "phylum2", "class2","order2", 
+                  "family2","genus2", "species2")
+  tax3 = merge(tax1, tax)
+
+#annotate whether MAG1 is the same or different species as MAG2
+tax3$same = ifelse(tax3$species1==tax3$species2, "same", "diff")
+mypalette<-brewer.pal(9,"Set3")
+sameSpecies = subset(tax3, same=="same")
+
+#drop Pseudomonas aeruginosa_A
+sameSpecies = subset(sameSpecies, species1 != "s__Pseudomonas aeruginosa_A")
+sameSpecies = subset(sameSpecies, species1 !=  "Candida orthopsilosis"  )
+sameSpecies = subset(sameSpecies, species1 !=  "Candida parapsilosis"  )
+sameSpecies = subset(sameSpecies, species1 !=  "Enterococcus faecalis"  )
+sameSpecies$species1 = stringr::str_remove_all(sameSpecies$species1, "s__")
+
+#let's shorten the names so that it's plottable
+sameSpecies$species1.new = plyr::revalue(sameSpecies$species1, 
+                                         c("Candida auris"="C. auris",               
+                                           "Staphylococcus pettenkoferi"= "S. pettenkoferi" ,
+                                           "Proteus mirabilis"   = "P. mirabilis" ,
+                                           "Morganella morganii" ="M. morganii", 
+                                             "Klebsiella pneumoniae"  ="K. pneumoniae" ,
+                                             "Providencia stuartii"   = "P. stuartii" ,
+                                              "Acinetobacter baumannii" ="A. baumannii",
+                                             "Escherichia coli" = "E. coli",
+                                             "Pseudomonas aeruginosa" ="P. aeruginosa",
+                                           "Enterococcus faecalis" = "E. faecalis"))    
+
+#make an ANI plot of same species comparisons, facet wrapping by species
+#make an ANI plot of same species comparisons, facet wrapping by species
+ggplot(sameSpecies, aes(ANI, fill=species1.new)) + geom_histogram()+
+  facet_wrap(~species1.new, scales="free", ncol=5) + theme_classic()  + 
+  scale_fill_manual(values=mycolors1) +
+  theme(legend.position = "none") +
+  theme(strip.text.x = element_text(size=8, face="italic")) +
+  theme(strip.text.y = element_text(size=8, face="italic")) +
+  theme(axis.text = element_text(size = 8))  +
+  theme(axis.text.x=element_text(angle=90,hjust=1)) +
+  theme(axis.title=element_text(size=8)) + ylab("Count")
+
+
+```
+
+
+
+
+### Panel 3A: Let's plot ANI networks, drawing an edge between nodes only if ANI > 99.9
+a) Network analysis of pairwise ANI for each species. Each node (large dot) represents a MAG. Edges or lines between nodes are represented if pairwise ANI reaches or exceeds 99.9%. Colors correspond to distinct subjects. For E. coli, S. pettenkoferi, and C. auris unconnected nodes represent cases where one of two pairwise calculations had ANI less than 99.9%. 
+```{r}
+library(igraph)
+library(ggnet)
+library(ggnetwork)
+
+
+plot_ani_network  <- function(IMP, species) {
+  #note this assumes that the IMP file contains output where V1 and V2 are the MAGs being compared
+  #and sample1 and sample2 are the met codes 
+    IMP = subset(IMP, Sample1 != Sample2)
+
+    #we need to remove the same MAG comparisons
+    IMP = subset(IMP, V1 != V2)
+
+    #merge the IMP file with the metadata so we know what samples we're comparing
+    #we annotate sample 1 first
+    map1 = read.csv("~/Desktop/NATURE/mapping_file_2023-07-23.csv") %>%
+          dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+        map1$Sample1 = map1$library_id
+        colnames(map1) = c("library1", "Unique_ptid1", "site1", "survey1", "Sample1")
+        IMP2 = merge(map1, IMP)
+
+    #annotate sample 2 now
+    map2 = read.csv("~/Desktop/NATURE/mapping_file_2023-07-23.csv") %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+    map2$Sample1 = map2$library_id
+    colnames(map2) = c("library2", "Unique_ptid2", "site2", "survey2", "Sample2")
+    IMP3 = merge(IMP2, map2)
+
+    #convert the table intro a matrix
+    matrix <- acast(IMP3, V1~V2, value.var="V3")
+    #replace NA  with 0
+    matrix[is.na(matrix)] <- 0
+    #replace any value < 99.9 with 0
+    matrix[matrix < 99.9] <- 0
+    #replace any value >= 99.9 with 1
+    matrix[matrix > 0] <- 1 
+
+    #graph the network
+    network <- graph_from_incidence_matrix(matrix)
+
+    #let's get the subject information merged into the network info
+    df = ggnetwork(network)
+    df$library_id = stringr::str_sub(df$name, 1, 7)
+    map = read.csv("~/Desktop/NATURE/mapping_file_2023-07-23.csv") %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+    foo = merge(df, map) 
+
+    #define a color vector and plot
+    cols <- c(brewer.pal(12,"Set3"), "black", "red")
+
+    AB_Network = ggplot(foo, aes(x = x, y = y, xend = xend, yend = yend)) +
+    geom_edges(aes(linetype = type), color = "grey50") +
+    geom_nodes(aes(color = as.factor(Unique_ptid)), size=1) +
+    scale_color_manual(values=mypal) +
+    theme_blank() + 
+    ggtitle(paste0(species)) +
+  theme(legend.position="none")
+    return(AB_Network)
+}
+
+#read in the acinetobacter ANI table
+ac = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_acinetobacter.csv", header=TRUE)
+p1 = plot_ani_network(IMP=ac, species="A. baumannii") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic")) 
+
+#read in ecoli
+ec = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_ecoli.csv", header=TRUE)
+p2 = plot_ani_network(IMP=ec, species="E. coli") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+#read in klebsiella
+kp = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_klebsiella.csv", header=TRUE)
+p3 = plot_ani_network(IMP=kp, species="K. pneumoniae" ) +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+
+#read in morganella; 17 colors needed
+mm = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_morganella.csv", header=TRUE)
+p4 = plot_ani_network(IMP=mm, species="M. morganii") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+#read in proteus mirabilis
+pm = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_proteus.csv", header=TRUE)
+p5 = plot_ani_network(IMP=pm, species="P. mirabilis") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+
+#read in providencia stuartii
+ps = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_providencia.csv", header=TRUE)
+p6 = plot_ani_network(IMP=ps, species="P. stuartii" ) +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+#read in pseudomonas
+pa = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_pseudomonas.csv", header=TRUE)
+p7 = plot_ani_network(IMP=pa, species="P. aeruginosa") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+
+#read in pettenkoferi
+sp = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_petten.csv", header=TRUE)
+p8 = plot_ani_network(IMP=sp, species="S. pettenkoferi") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+#read in candida
+ca = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_cauris.csv", header=TRUE)
+p9 = plot_ani_network(IMP=ca, species="C. auris") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+ef = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ANI/withfinal42_fastani_efecalis.csv", header=TRUE)
+p10 = plot_ani_network(IMP=ef, species="E. faecalis") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+Fig3A = cowplot::plot_grid(p1, p9, p2, p3, p4, p5, p6, p7, p8 , ncol=3)
+Fig3A
+```
+
+
+calculate the average ANI for each species, including the 95% confidence intervals
+```{r}
+get_ANI_CI <- function(df, species) {
+  my_ac = ci_mean(df$V3,
+      probs = c(0.025, 0.975),
+      type =  "bootstrap",
+      boot_type = "basic",
+      R = 9999,
+      seed = 834)
+  df = data.frame(CI_lower=my_ac$interval[1], CI_upper=my_ac$interval[2], average=my_ac$estimate, 
+                  species=paste0(species))
+}
+ca_CI = get_ANI_CI(df=ca, species="Candida")
+ac_CI = get_ANI_CI(df=ac, species="Acinetobacter")
+ec_CI = get_ANI_CI(df=ec, species="Escherichia")
+kp_CI = get_ANI_CI(df=kp, species="Klebsiella")
+mm_CI = get_ANI_CI(df=mm, species="Morganella")
+pa_CI = get_ANI_CI(df=pa, species="Pseudomonas")
+sp_CI = get_ANI_CI(df=sp, species="Pettenkoferi")
+pm_CI = get_ANI_CI(df=pm, species="Proteus")
+ps_CI = get_ANI_CI(df=ps, species="Providencia")
+
+
+ANI_Table = data.frame(rbind(ca_CI,
+                             ac_CI,
+                             ec_CI,
+                             kp_CI,
+                             mm_CI,
+                             pa_CI, 
+                             sp_CI,
+                             pm_CI,
+                             ps_CI))
+
+kable(ANI_Table)
+write.csv(ANI_Table, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Table1.csv")
+```
+
+
+
+
+
+
+
+### Fig3C: Plot SNP histograms where SNPs were called using Snippy 
+
+let's read in the snippy output rather than generating distances using the vcf files. c) Number of SNPs per genome of species defined in upper panel, as determined by a read-based approach, relative to the nearest NCBI neighbor (identified in the single copy marker gene analysis).
+```{r}
+#acinetobacter 
+  ac_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/ac/core.full.per_branch_statistics.csv")
+ac_snps$species = "A. baumannii"
+ac_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/ac/core.full.node_labelled.final_tree.tre") %>%
+  midpoint.root(.)
+
+#candida
+ca_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/ca/core.full.per_branch_statistics.csv")
+ca_snps$species = "C. auris"
+ca_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/ca/core.full.node_labelled.final_tree.tre")%>%
+  midpoint.root(.)
+
+#ecoli
+ec_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/ec/core.full.per_branch_statistics.csv")
+ec_snps$species = "E. coli"
+ec_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/ec/core.full.node_labelled.final_tree.tre")%>%
+  midpoint.root(.)
+
+#morganella
+mm_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/mm/core.full.per_branch_statistics.csv")
+mm_snps$species = "M. morganii"
+mm_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/mm/core.full.node_labelled.final_tree.tre")
+
+#proteus mirabilis
+pm_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/pm/core.full.per_branch_statistics.csv")
+pm_snps$species = "P. mirabilis"
+pm_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/pm/core.full.node_labelled.final_tree.tre")
+
+#Klebsiella
+kp_snps = data.table::fread("~/Desktop/NATURE/ABX_SAMPLES/snippy/kp/core.full.per_branch_statistics.csv")
+kp_snps$species = "K. pneumoniae"
+kp_tre =  read.tree("~/Desktop/NATURE/ABX_SAMPLES/snippy/kp/core.full.node_labelled.final_tree.tre")
+
+
+################
+#providencia
+ps_snps = data.table::fread("~/Desktop/NATURE/Figure3/ps_snps/core.full.per_branch_statistics.csv")
+ps_snps$species = "P. stuartii"
+ps_tre =  read.tree("~/Desktop/NATURE/Figure3/ps_snps/core.full.node_labelled.final_tree.tre")
+
+#pettenkoferi
+sp_snps = data.table::fread("~/Desktop/NATURE/Figure3/sp_snps/core.full.per_branch_statistics.csv")
+sp_snps$species = "S. pettenkoferi"
+sp_tre =  read.tree("~/Desktop/NATURE/Figure3/sp_snps/core.full.node_labelled.final_tree.tre")
+
+
+#pseudomonas
+pa_snps = data.table::fread("~/Desktop/NATURE/Figure3/pa_snps/core.full.per_branch_statistics.csv")
+pa_snps$species = "P. aeruginosa"
+pa_tre =  read.tree("~/Desktop/NATURE/Figure3/pa_snps/core.full.node_labelled.final_tree.tre")
+
+
+mySnps = data.frame(rbind(ac_snps, ca_snps, ec_snps, kp_snps, mm_snps, pm_snps, ps_snps, pa_snps, sp_snps, fill=TRUE))
+
+
+
+Fig3C= ggplot(mySnps, aes(species, Num.of.SNPs.outside.recombinations, fill=species)) + 
+  geom_violin() +
+  geom_point(size=1) + 
+  facet_wrap(~species, scales="free", ncol=3) + 
+  theme_bw() +
+  scale_fill_manual(values=mycolors1) +
+  theme(legend.position = "none") + ylab("Number of SNPs") +
+  theme(strip.text.x = element_text(size=8, face="italic")) +
+  theme(strip.text.y = element_text(size=8, face="italic")) +
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank()) + xlab("") +
+  theme(axis.text = element_text(size = 8))    +
+  theme(axis.title=element_text(size=8))
+
+
+Fig3C
+```
+### Supplementary Table 8: let's get the summary stats for the number of SNPs
+
+```{r}
+
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+#get the summary stats for the numbers of snps
+ca_summary= summary(ca_snps$`Num of SNPs outside recombinations`)
+ac_summary = summary(ac_snps$`Num of SNPs outside recombinations`)
+ec_summary = summary(ec_snps$`Num of SNPs outside recombinations`)
+kp_summary = summary(kp_snps$`Num of SNPs outside recombinations`)
+mm_summary = summary(mm_snps$`Num of SNPs outside recombinations`)
+pa_summary = summary(pa_snps$`Num of SNPs outside recombinations`)
+sp_summary = summary(sp_snps$`Num of SNPs outside recombinations`)
+ps_summary = summary(ps_snps$`Num of SNPs outside recombinations`)
+pm_summary = summary(pm_snps$`Num of SNPs outside recombinations`)
+
+
+snp_summary = data.frame(rbind(ca_summary,
+                               ac_summary,
+                               ec_summary, 
+                               kp_summary, 
+                               mm_summary, 
+                               pa_summary, 
+                               sp_summary,
+                               ps_summary,
+                               pm_summary))
+
+kable(snp_summary)
+write.csv(snp_summary, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/snp_summary.csv")
+```
+
+snp_summary
+```{r}
+mydf = dplyr::select(snp_summary, c("Min.", "Median", "Max."))
+mydf$mode = 0
+mydf$species = stringr::str_remove_all(rownames(mydf), "_summary")
+mydfm = melt(mydf, id.vars="species")
+p = ggplot(mydfm, aes(species, value, fill=variable, color=variable)) + 
+  geom_jitter(width = 0.09) + theme_classic() + 
+  geom_hline(yintercept = 50, linetype="dashed")
+
+p
+```
+
+```{r}
+#get the mode for the number of snps
+ca_mode= getmode(ca_snps$`Num of SNPs outside recombinations`)
+ac_mode = getmode(ac_snps$`Num of SNPs outside recombinations`)
+ec_mode = getmode(ec_snps$`Num of SNPs outside recombinations`)
+kp_mode = getmode(kp_snps$`Num of SNPs outside recombinations`)
+mm_mode = getmode(mm_snps$`Num of SNPs outside recombinations`)
+pa_mode = getmode(pa_snps$`Num of SNPs outside recombinations`)
+
+
+```
+
+
+### Supplementary Figure 4: let's plot the tree for acinetobacter
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/acinetobacter_gtree_out_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure4_Acineto_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+### Supplementary Figure 5: plot the tree for ecoli
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/ecoli_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure5_Ecoli_ggtree.png", device="png", height = 15, width = 8.5)
+```
+
+
+
+
+### Supplementary Figure 6: plot the tree for efaecalis
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/20_go2tree/efaecalis_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure6_Efaecalis_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+### Supplementary Figure 7: plot the tree for morganella
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/gtree_out_morganella.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure7_Morganella_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+
+### Supplementary Figure 8: plot the tree for pettenkoferi
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/pettenkoferi_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure8_Pettenkoferi_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+### supplementary figure 9: tree for proteus
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/proteus_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure9_Proteus_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+### supplementary Figure 10: tree for providencia
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/providencia_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure10_Providencia_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+### supplementary figure 11: tree for pseudomonas
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/pseudomonas_gtree_out.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/SupplementaryFigure11_Pseudomonas_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+
+
+### Figure 3D
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/kleb2_gtree_out/kleb2_gtree_out.tre") %>%
+  ape::drop.tip(., "GCF_015290925.1_Klebsiella_pneumoniae_S166-1")
+
+
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre) 
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+
+#let's read in the labels we want to rename the leafs to
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/goToTree/kleb2_gtree_out/tree.tip.labels_klebsiella_some_labels.csv")
+df$tip.label = stringr::str_replace_all(df$tip.label, ";", "_")
+sequenceType = data.frame(ST=df$some.labels)
+rownames(sequenceType) = df$tip.label
+
+#make the tre
+Fig3B = ggtree(tre2) %<+% df +  
+  geom_tiplab(aes(label=some.labels), size=1.5, family="sans",  linetype="blank", align=TRUE)
+Fig3B
+
+```
+
+```{r, eval=FALSE}
+#let's read in the labels we want to rename the leafs to
+sequenceType = data.frame(ST=df$ST)
+rownames(sequenceType) = sequenceType$tip.label
+
+mypalette<-brewer.pal(8,"Dark2")
+#make the tre
+Fig3B = ggtree(tre2) %<+% df +  theme_tree2()+ 
+  geom_tiplab(aes(label=some.labels, color=ST_Label)) +
+  scale_color_manual(breaks=unique(df$ST_Label), 
+                     values=c("black", "#D95F02" , "#E7298A", "#66A61E","#7570B3"  )) +
+  theme(legend.position="none") 
+Fig3B
+
+```
+
+```{r, eval=FALSE}
+Subjects = data.frame(Subject=df$Subject)
+rownames(Subjects) = df$tip.label
+
+SequeceType = data.frame(ST=df$ST_Label)
+rownames(SequeceType) = df$tip.label
+
+#annotate the tree with body site
+#we don't plot the legend
+Fig3B = gheatmap(Fig3D, Subjects,  width=0.1) +
+    scale_fill_manual(values=mypal, na.value="lightgray") + 
+  theme(legend.position = "none")
+
+```
+
+
+
+
+### Fig3D: zero snp subjects
+ d) Nursing home residents (subject ID on x-axis) with genomic data consistent with sharing a clonal strain of each species (y-axis). Subjects are ordered from the great left to right based on descending numbers of shared strains. Colors of points and lines are as in panel a. If MAG yielded 0 SNPs outside recombinant regions, with breadth of coverage of the reference genome exceeding 75%, then strains are considered ‘shared’ and marked with large dot on line. Subjects 2, 4, 28 and 48 were roommates, as were subjects 14, 23, 5, and 15. 
+```{r}
+#read in the shotgun mapping file
+map = read.csv("~/Desktop/NATURE/mapping_file_2023-07-23.csv") %>%
+  dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+
+
+#read in the subjects for whom we have 0 core genome snps for each species
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/snippy/ZeroSnpSubjectsNoSamples_abx.csv")
+df$presence = 1
+
+cauris = read.csv("~/Desktop/NATURE/Figure3/cauris_MAGs.csv")
+cauris$species = "Candida auris"
+cauris$presence = 1
+caurisDF = merge(cauris, map) 
+caurisDF$subject = caurisDF$Unique_ptid
+caurisDF = dplyr::select(caurisDF, c("species", "subject", "presence"))
+
+#clean up the bacterial data frame and merge with cauris
+bacDF = dplyr::select(df, c("Species", "Unique_ptid", "presence"))
+colnames(bacDF) = colnames(caurisDF)
+combinedDF = data.frame(rbind(caurisDF, bacDF))
+
+#see how many strains are shared 
+NumberSharedStrains  = doBy::summary_by(presence~subject, FUN=c(sum, length), data=combinedDF)
+NumberSharedStrains <- NumberSharedStrains[order(-NumberSharedStrains$presence.sum),]
+myorder = NumberSharedStrains$subject
+
+
+combinedDF$subject  <- factor(combinedDF$subject, levels = myorder)
+
+#plot the number of strains shared per subject
+#plot the number of strains shared per subject
+Fig3D = ggplot(combinedDF, aes(as.factor(subject), species, color=species, group=species)) + 
+  geom_point() + geom_line() + theme_classic()+ 
+  theme(legend.position = "none")   + 
+  scale_color_manual(values=mycolors) + 
+  xlab("Subject") + 
+  theme(axis.text.y = element_text(face = "italic")) + 
+  ylab("") + 
+  theme(axis.text = element_text(size = 8))  +
+  theme(axis.title=element_text(size=8))
+  
+
+
+Fig3D
+
+
+#summary(NumberSharedStrains$presence.sum)
+```
+
+
+### Generate Figure 3
+Figure 3: Skin of nursing home residents is a reservoir for the transmission of ESKAPE pathogens. A) Network analysis of pairwise ANI for each species. Each node (large dot) represents a MAG. Lines between nodes are represented if pairwise ANI reaches or exceeds 99.9%. Colors correspond to distinct subjects. Since ANI calculations are not reciprocal, for E. coli, S. pettenkoferi, and C. auris, unconnected nodes represent cases where one of two pairwise calculations had ANI less than 99.9% whereas for other species both pairwise calculations may have been less. B) phylogenetic tree based on 172 single-copy marker genes for 45 K. pneumoniae MAGs integrated with publicly available K. pneumoniae genomes after dereplication. C) Number of SNPs per genome of species defined in upper panel, as determined by a read-based approach, relative to the nearest NCBI neighbor (identified in the single copy marker gene analysis). Each species is represented on the x-axis within respective panels and the number of SNPs after correcting for recombination is displayed on the y-axis. D) Facility D_ nursing home residents (subject ID on x-axis) with genomic data consistent with sharing a clonal strain of each species (y-axis). Subjects are ordered from left to right based on descending numbers of shared strains. Colors of points and lines are defined as in panel C. If a MAG yielded 0 SNPs outside recombinant regions, with breadth of coverage of the reference genome exceeding 75%, then strains are considered ‘shared’ and marked with a large dot on the line. Subjects 2, 4, 28 and 48 were roommates, as were subjects 14, 23, 5, and 15. 
+
+
+```{r, fig.height=14, fig.width=12}
+Fig3_LEFT = cowplot::plot_grid(Fig3A, Fig3C, ncol=1, labels=c("A", "C"))
+Fig3_Right = cowplot::plot_grid(Fig3B, labels="B")
+Fig3_TOP = cowplot::plot_grid(Fig3_LEFT , Fig3_Right, ncol=2, rel_widths = c(1, 0.8))
+Fig3_Bottom = cowplot::plot_grid(Fig3D, ncol=1, rel_widths = 1, rel_heights = 0.7, labels="D")
+
+Fig3 = plot_grid(Fig3_TOP, Fig3_Bottom ,nrow = 2, rel_heights = c(2, 0.5))
+Fig3
+ggsave(Fig3, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission1/Figure3.pdf", height = 8.5, width = 11)
+```

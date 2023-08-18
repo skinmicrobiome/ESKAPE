@@ -1,0 +1,819 @@
+---
+title: "Figure 5 - pattern of strain sharing can be generalized to other nursing homes"
+author: "Diana Proctor"
+date: "5/17/2022"
+output: html_document
+---
+
+***
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+*draft: submission to Nature, August 2023*
+
+*Manuscript Title*: Fungal Candida auris and bacterial ESKAPE pathogens:  Human skin as a reservoir for transmissible microbes and antibiotic resistance in nursing homes
+
+*Authors*: Diana M. Proctor 1, Sarah E Sansom2, Clay Deming1, Sean Conlan1, Ryan A Blaustein1,3, Thomas K. Atkins1,4, NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+ and Julia A. Segre 1+
+
+*Affiliations*:
+
+1Microbial Genomics Section, Translational and Functional Genomics Branch, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA
+
+2 Department of Internal Medicine, Division of Infectious Diseases, Rush University Medical Center, Chicago, IL 60612, USA.
+
+3 Current Address: Department of Nutrition and Food Science, University of Maryland, College Park, MD 20742, USA
+
+4 Current Address: Department of Quantitative and Computational Biology, Princeton University, Princeton, NJ
+
+5 NIH Intramural Sequencing Center, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA.
+
+6 Dermatology Branch, National Institute of Arthritis and Musculoskeletal and Skin Diseases, National Institutes of Health, Bethesda, MD 20892, USA
+
+
++Contributed equally
+
+---
+***
+
+The input for this is the following files, generated using the mags.sh script:
+
+1. *unique.tab files indicating the number of unique reads that map to each mag generated from mags.sh
+2. other_NH_gtdbtk.bac120.arc.fungi.summary.csv, which is a blend of the GATK taxonomic output (generated from mags.sh) and the mash/mummer output (generated from mags.sh); I manually concatenated these two taxonomy files 
+3. otherNH_mapping_file.csv, which is the metagenome mapping file for the SRA downloads
+4. go2Tree_out_newmap_addeda_nocd.tre, the E.coli tree encompassing our MAGs and other nursing home MAGs
+5. ecoli_combined_NH_gototreemap_v2.csv, the metadata for the ecoli tree
+6. *_fastani.txt files, ANI for each species and each facility
+
+
+This script will generate the following plots:
+1. Figure 5
+
+
+```{r global_options}
+library(knitr)
+opts_chunk$set(fig.width=12, fig.height=8, 
+               echo=TRUE, warning=FALSE, message=FALSE, error = FALSE)
+```
+
+
+load libraries
+```{r}
+packages <- c("knitr", 
+              "vcfR", 
+              "ANCOMBC",
+              "ggplot2", 
+              "tidyverse", 
+              "colorspace", 
+              "kableExtra", 
+              "gridExtra", 
+              "scales",
+              "refGenome",
+              "RColorBrewer",
+              "ape",
+              "ggtree",
+              "ape",
+              "Biostrings",
+              "vcfR",
+              "adegenet",
+              "poppr",
+              "pegas",
+              "dendextend",
+              "cowplot",
+              "ggpubr",
+              "ComplexHeatmap",
+              "phyloseq",
+              "reshape2",
+              "network",
+              "sna",
+              "GGally",
+              "ggrepel",
+              "igraph")
+n <- length(packages) - sum(sapply(packages,require,character.only=TRUE))
+```
+
+define some color schemes
+```{r}
+
+mycolors=c("Candida auris"= "#8B008B",
+      "Malassezia spp."= "#BEBADA" ,
+      "Malassezia slooffiae"="#BC80BD", 
+      "Pseudomonas aeruginosa"="#C51B7D",
+      "Proteus mirabilis"="#FB8072",
+      "Providencia stuartii"=  "#FDB462"  ,
+      "Escherichia coli"="#737000"   ,
+      "Enterococcus faecalis"="#E6F5D0"  ,
+      "Acinetobacter baumannii"="#A1D76A" ,
+      "Morganella morganii"="#32612D" ,
+      "Klebsiella pneumoniae" = "#0D52BD", 
+      "Staphylococcus aureus" = "#329D9C" ,
+      "Staphylococcus pettenkoferi" = "gray")
+
+```
+
+
+read in  *unique.tab and create a phyloseq object. Note we set all MAGs with coverage < 30 equal to 0.
+```{r}
+path <- "~/snps2/otherNH/oh/all_nh_withOh" 
+
+# Forward and reverse fastq filenames have format: cat.tsv, the output of the blast searches on the 4 genomes
+bwaOut <- sort(list.files(path, pattern="*unique.tab", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(bwaOut), "/"), `[`, 1)
+sample.names = stringr::str_remove_all(sample.names, "_mapping_eukBacBins.derep_unique.tab")
+
+
+#read in the files and store them in a list
+TSV.list <- vector("list", length(sample.names))
+  for(i in 1:length(sample.names)) {
+        df  = data.table::fread(bwaOut[i], fill=TRUE)
+        colnames(df) = c("Genome", "Length", "Counts", "Depth", "Coverage", "Coeff")
+        df$Counts_Adjusted_30p = ifelse(df$Coverage < 30, 0, df$Counts)
+        df = dplyr::select(df,"Genome","Counts_Adjusted_30p")
+        colnames(df) = c("Genome", paste0(sample.names[i], "_", "Counts_Adjusted_30p"))
+      TSV.list[[i]] =  df
+}
+
+#now let's turn this list into a data frame
+dt<-rlist::list.cbind(TSV.list)
+Genome = dt$Genome
+data <- dplyr::select(dt, -Genome)  
+data = data.frame(data)
+rownames(data) = Genome
+
+#we need to fix column names so they are just metcodes
+mynames = stringr::str_remove_all(colnames(data), "_Counts_Adjusted_30p")
+colnames(data) = mynames
+
+#fix genoome names so that they don't have .fa and can be merged with gtdbk output
+rownames(data) = stringr::str_remove_all(rownames(data), ".fa")
+
+#make the otu table
+otus = phyloseq::otu_table(data, taxa_are_rows = TRUE)
+
+#make the taxonomy table
+#note that  i separated the classificatioon variable in to linnaean tax classes in Excel
+#i labeled the tax classes with division, phylum, etc. all lower case
+#i also changed genome to user_genome
+tax =read.csv("~/snps2/otherNH/other_NH_gtdbtk.bac120.arc.fungi.summary.csv") %>%
+  dplyr::select(., c("user_genome", "division", "phylum", "class", "order", "family", "genus", "species"))
+tax$user_genome = str_remove_all(tax$user_genome, ".fa")
+tax$fm = duplicated(tax$user_genome)
+tax = tax[!duplicated(tax$user_genome), ] 
+taxa.names = tax$user_genome
+tax = phyloseq::tax_table(as.matrix((tax)))
+phyloseq::taxa_names(tax) = taxa.names
+
+
+#read in the metagenome metadata
+map = read.csv("~/snps2/otherNH/otherNH_mapping_file.csv") 
+map2 = subset(map, Run %in% sample_names(otus))
+map = sample_data(map)
+sample_names(map) = map$Run
+
+#now merge the mapping file, taxonomy table and otu table into phyloseq
+phy = phyloseq(otus, sample_data(map), tax) 
+nsamples(phy)
+```
+
+```{r}
+phy = prune_samples(sample_sums(phy) > 0, phy)
+#saveRDS(phy, file="~/Desktop/genome_paper/Figure6/phyloseq_set_2022-12-16.rds")
+```
+
+
+
+
+### Let's make panel 5A: 
+a)  The relative abundance of each of the select species for ~1300 publicly available samples, as determined by the fraction of unique reads mapping to each of 321 dereplicated MAGs. Each panel represents a different facility. Species with reads mapping to species other than those listed in the legend are shaded in blue. 
+
+```{r}
+#define taxa of interest and define a color vector for each
+taxa_of_interest = c(
+      "s__Escherichia coli",
+      "s__Enterococcus faecalis",
+     "s__Klebsiella pneumoniae" ,
+     "s__Acinetobacter baumannii",
+      "s__Pseudomonas aeruginosa",
+      "s__Pseudomonas aeruginosa_A",
+      "s__Proteus mirabilis",
+      "s__Providencia stuartii",
+      "s__Staphylococcus pettenkoferi",
+     "s__Staphylococcus aureus",
+     "Malassezia slooffiae")
+
+myTaxa = subset_taxa(phy, species %in% taxa_of_interest)
+tax = data.frame(myTaxa@tax_table@.Data)
+tax$group = tax$species
+tax$group  = stringr::str_remove_all(tax$group, "s__")  
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(myTaxa) = tax
+
+
+notMyTaxa = subset_taxa(phy, !(species %in% taxa_of_interest))
+tax = data.frame(notMyTaxa@tax_table@.Data)
+tax$group ="Other"
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(notMyTaxa) = tax
+
+
+newPhy = merge_phyloseq(notMyTaxa, myTaxa) %>%
+  transform_sample_counts(., fun=function(x) 100*(x/sum(x))) %>%
+  subset_samples(., !(CenterName %in% c("negative", "positive"))) 
+newPhy = subset_samples(newPhy, sample_sums(newPhy) > 0) %>%
+  subset_taxa(., group !="Other") %>%
+  subset_samples(., body_site != "oral")
+#make a skin site
+sample_data(newPhy)$Body_Site = ifelse(sample_data(newPhy)$body_site=="stool","stool", "skin")
+
+
+#fix the center names
+sample_data(newPhy)$CenterName = plyr::revalue(sample_data(newPhy)$CenterName, 
+                                               c("GERI_CD"="CT CD",
+                                               "GERI_JB" = "CT JB",
+                                               "LEIDEN UNIVERSITY MEDICAL CENTER"="Leiden",
+                                                "USA: Massachusetts" ="MA",
+                                               "SNF2"="CT SNF2",
+                                               "SNF3"="CT SNF3",
+                                               "SNF4"="CT SNF4",
+                                               "SNF1"="CT SNF1",
+                                               "RHODE ISLAND HOSPITAL"="RI"  ))
+newcolours=c(
+        "Malassezia slooffiae"="violet", 
+        "Pseudomonas aeruginosa"="#C51B7D",
+      "Proteus mirabilis"="#E9A3C9",
+      "Providencia stuartii"=  "#FDE0EF"  ,
+      "Escherichia coli"="#AFE1AF"   ,
+      "Enterococcus faecalis"="#E6F5D0"  ,
+      "Acinetobacter baumannii"="#A1D76A" ,
+      "Klebsiella pneumoniae" = "#4D9221", 
+ "Staphylococcus aureus" = "#329D9C" ,
+ "Staphylococcus pettenkoferi" = "gray") 
+
+
+
+newPhy = subset_samples(newPhy, CenterName!="CT CD")
+newPhy = subset_samples(newPhy, CenterName!="CT JB")
+Fig5A = plot_bar(newPhy, x="Sample", y="Abundance")+ 
+  geom_bar(stat="identity", position="stack")+
+  facet_wrap(Body_Site~CenterName, scales="free_x", ncol=5) +
+  theme_classic()+
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank()) + 
+  theme(axis.title=element_text(size=6), axis.text =element_text(size=6))+
+    theme(legend.position = "none") 
+Fig5A
+
+```
+
+```{r}
+phyToDf <- function(phy, level) {
+       domain.phy <- tax_glom(phy, taxrank=level)
+      tax.count <- data.frame(data.frame(domain.phy@tax_table@.Data, otu_table(domain.phy)))
+      dfm = melt(tax.count, colnames(tax_table(domain.phy))) 
+      colnames(dfm)[colnames(dfm) == 'variable'] <- 'Run'
+      df = plyr::join(dfm,data.frame(sample_data(domain.phy)) )
+      return(df)
+}
+
+
+rank_samples_and_plot <- function(phy, Site){
+    map = data.frame(sample_data(phy), Abundance=sample_sums(phy)) %>%
+      dplyr::select(., c("Run", "Sample1", "CenterName", "Body_Site", "Abundance"))
+    sample_data(phy) = map
+    rownames(map) = NULL
+    myranks = map %>%
+      arrange(., Abundance) %>%
+      mutate(., Rank=order(Abundance))%>%
+      dplyr::select(., c("Run", "Rank"))
+    
+    mydf = phyToDf(newPhy, "group") %>%
+      dplyr::select(., c("Run", "group", "value", "Sample1", "CenterName", "Body_Site"))
+    myranks$Run = as.factor(as.character(myranks$Run))
+    df = merge(mydf, myranks)
+    df = subset(df, group != "[Candida] auris")
+       p = ggplot(df) +
+            geom_col(aes(x=Rank, y=value, fill=group), position="stack",  width=1) + 
+            theme_classic() +
+            ylab("") +   
+         scale_color_manual(values=mycolors) +
+         theme(legend.position = "none") +
+         scale_fill_manual(values=mycolors) + 
+         ylim(0, 100) + 
+         ylab("Relative Abundance")
+    return(p)
+    }
+
+myfacilities = unique(sample_data(newPhy)$CenterName)
+  
+myphy1 =  subset_samples(newPhy, CenterName=="CT SNF1" & Body_Site=="skin") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p1 = rank_samples_and_plot(phy=myphy1) + ggtitle("CT SNF1: Skin") 
+
+myphy2 =  subset_samples(newPhy, CenterName=="CT SNF1" & Body_Site=="stool") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p2 = rank_samples_and_plot(phy=myphy2) + ggtitle("CT SNF1: Stool")
+
+myphy3 =  subset_samples(newPhy, CenterName=="CT SNF2" & Body_Site=="skin") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p3 = rank_samples_and_plot(phy=myphy3) + ggtitle("CT SNF2: Skin")
+
+myphy4 =  subset_samples(newPhy, CenterName=="CT SNF2" & Body_Site=="stool") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p4 = rank_samples_and_plot(phy=myphy4) + ggtitle("CT SNF2: Stool")
+
+myphy5 =  subset_samples(newPhy, CenterName=="CT SNF3" & Body_Site=="skin") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p5 = rank_samples_and_plot(phy=myphy5) + ggtitle("CT SNF3: Skin")
+
+
+
+myphy7 =  subset_samples(newPhy, CenterName=="CT SNF4" & Body_Site=="skin") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p7 = rank_samples_and_plot(phy=myphy7) + ggtitle("CT SNF4: Skin")
+
+
+myphy8 =  subset_samples(newPhy, CenterName=="CT SNF4" & Body_Site=="stool") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p8 = rank_samples_and_plot(phy=myphy8) + ggtitle("CT SNF4: Stool")
+
+
+myphy9 =  subset_samples(newPhy, CenterName=="MA") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p9 = rank_samples_and_plot(phy=myphy9) + ggtitle("MA: Stool")
+
+
+myphy10 =  subset_samples(newPhy, CenterName=="RI") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p10 = rank_samples_and_plot(phy=myphy10) + ggtitle("RI: Stool")
+
+myphy11 =  subset_samples(newPhy, CenterName=="Leiden") %>%
+      prune_samples(sample_sums(.) > 0, .) %>%
+      prune_taxa(taxa_sums(.) > 0, .) 
+p11 = rank_samples_and_plot(phy=myphy11) + ggtitle("Leiden: Stool")
+
+
+Fig5A_New = cowplot::plot_grid(p1, p3,  p5, p7, p2,  p4, p8,  p11, p9, p10,ncol = 5)
+
+combinedDF = rbind(p1$data, p3$data, p5$data, p7$data, p2$data, p4$data, p8$data, p11$data, p9$data, p10$data)
+      Fig5A_New2 = ggplot(combinedDF) +
+            geom_col(aes(x=Rank, y=value), position="stack",  width=1) + 
+            theme_classic() +
+            ylab("") +   
+         theme(legend.position = "none") +
+         scale_fill_manual(values=mycolors) + facet_wrap(Body_Site~CenterName, scales="free_x", ncol=5) +
+         ylab("Relative Abundance") +
+  theme(axis.text = element_text(size = 6)) +
+  theme(axis.title=element_text(size=6))
+
+```
+
+
+
+how much of the total abundance in the sample, do these select species account for
+```{r, eval=FALSE}
+mysummaries = doBy::summary_by(Abundance~Sample+CenterName, FUN=sum, data=dat) 
+p = ggplot(mysummaries, aes(CenterName, Abundance.sum)) + geom_boxplot(outlier.shape = NA) +theme_classic() + geom_point()
+
+RI = subset(mysummaries, CenterName =="RI") %>%
+  subset(., Abundance.sum >= 75)
+nrow(RI)/77
+
+RI = subset(mysummaries, CenterName =="MA") %>%
+  subset(., Abundance.sum >= 75)
+nrow(RI)/77
+facilityAverages = doBy::summary_by(Abundance.sum~CenterName, FUN=c(mean, median, length, sd), data=mysummaries) 
+```
+
+
+let's zoom in on the CT facility and ask whether we see these species on the skin in cases where it's also in the stool or not.
+
+```{r, fig.height=25, eval=FALSE}
+CT = subset(dat, CenterName %in% c("CT SNF2", "CT SNF1" ,  "CT SNF4",   "CT SNF3" ))
+CT1 = subset(CT, !(group %in% c("Malassezia", "Malassezia slooffiae")))
+
+sample1 = reshape2::colsplit(CT1$Sample1, "_", c("Junk", "Facility.Type", "Subject", "Visit", "Body_Site"))
+CT_df = data.frame(CT1, sample1)
+
+vsnf_subjects = c("F199", "F270" ,"F344", "F147", "F317" ,"F138",
+                  "F291" ,"F396" ,"F395", "F145", "F351", "F332",
+                  "F123" ,"F380", "F354", "F228", "F190" ,"F310", "F177", "F116" ,
+                  "F120", "F130")
+
+
+
+TSV.list <- vector("list", length(vsnf_subjects))
+  for(i in 1:length(vsnf_subjects)) {
+         mysubject = subset(CT_df, Subject==vsnf_subjects[i])
+          p =  ggplot(mysubject, aes(Body_Site, Abundance, color=species, group=species)) + 
+            geom_point() + geom_line() + facet_wrap(~Visit) + ggtitle(paste0(vsnf_subjects[i]))
+          TSV.list[[i]] = p 
+  }
+
+
+grid.arrange(grobs = list(TSV.list[[1]], TSV.list[[1]], TSV.list[[2]], TSV.list[[3]], TSV.list[[4]],
+  TSV.list[[5]], TSV.list[[6]], TSV.list[[7]], TSV.list[[8]], TSV.list[[9]],
+  TSV.list[[10]], TSV.list[[11]], TSV.list[[12]], TSV.list[[13]], TSV.list[[14]],
+  TSV.list[[15]], TSV.list[[16]], TSV.list[[17]], TSV.list[[18]], TSV.list[[19]],
+  TSV.list[[20]], TSV.list[[21]], TSV.list[[22]]), ncol=1)
+
+foo = subset(CT_df, Abundance > 1)
+foo$is.skin = ifelse(foo$Body_Site=="stool", "no", "yes")
+
+p = ggplot(foo, aes(is.skin, Abundance, color=species)) + geom_jitter(size=4, alpha=0.7, width = 0.05) + facet_wrap(~Subject) 
+p
+```
+
+### Figure 5B:  plot prevalence of the select species for each facility
+b) The prevalence of each species within each facility. Presence was determined using 30% breadth of coverage threshold. 
+```{r}
+
+taxa_of_interest = c(
+      "Escherichia coli",
+      "Enterococcus faecalis",
+     "Klebsiella pneumoniae" ,
+     "Acinetobacter baumannii",
+      "Pseudomonas aeruginosa",
+      "Proteus mirabilis",
+      "Providencia stuartii",
+      "Staphylococcus pettenkoferi",
+     "Staphylococcus aureus",
+      "Malassezia slooffiae" )
+
+
+stool = subset_samples(newPhy, Body_Site=="stool") %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  prune_samples(sample_sums(.) > 0, .)
+
+skin = subset_samples(newPhy, Body_Site=="skin") %>%
+  subset_samples(., CenterName != "CT CD") %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  prune_samples(sample_sums(.) > 0, .)
+
+sites = unique(sample_data(stool)$CenterName) #9 sites
+holder <- vector("list", length(sites))
+names(holder) = sites
+
+
+###deal with the stool samples
+for(i in 1:length(sites)) {
+   myphy = subset_samples(stool, CenterName %in% sites[i]) %>%
+            subset_taxa(., group %in% taxa_of_interest)  %>%
+                prune_taxa(taxa_sums(.) > 0, .) %>%
+                prune_samples(sample_sums(.) > 0, .) %>%
+                transform_sample_counts(., function(x) 100*(x/sum(x)))
+                sample_data(myphy)$sample_name = rownames(sample_data(myphy))
+       
+      #plot the abundance vs. prevalence
+      M = as.matrix(otu_table(myphy))
+        M[M>0] <-1
+        taxonSums = taxa_sums(myphy)
+        df = data.frame(taxonSums, rowSums(M), myphy@tax_table@.Data)
+        colnames(df)[1:2]= c("Abundance", "Prevalence")
+        df$site = sites[i]
+        df$prev = 100*(df$Prevalence/nsamples(myphy))
+        holder[[i]] = df
+}
+
+
+df_stool = do.call("rbind", holder) %>%
+  subset(., site != "CT CD") %>%
+  subset(., site !="CT JB")
+df_stool$Body_Site = "Stool"
+
+
+#####skin
+sites = unique(sample_data(skin)$CenterName) #9 sites
+holder <- vector("list", length(sites))
+names(holder) = sites
+
+for(i in 1:length(sites)) {
+   myphy = subset_samples(skin, CenterName %in% sites[i]) %>%
+            subset_taxa(., group %in% taxa_of_interest)  %>%
+                prune_taxa(taxa_sums(.) > 0, .) %>%
+                prune_samples(sample_sums(.) > 0, .) %>%
+                transform_sample_counts(., function(x) 100*(x/sum(x)))
+                sample_data(myphy)$sample_name = rownames(sample_data(myphy))
+       
+      #plot the abundance vs. prevalence
+      M = as.matrix(otu_table(myphy))
+        M[M>0] <-1
+        taxonSums = taxa_sums(myphy)
+        df = data.frame(taxonSums, rowSums(M), myphy@tax_table@.Data)
+        colnames(df)[1:2]= c("Abundance", "Prevalence")
+        df$site = sites[i]
+        df$prev = 100*(df$Prevalence/nsamples(myphy))
+        holder[[i]] = df
+}
+
+
+df_skin = do.call("rbind", holder) 
+df_skin$Body_Site = "Skin"
+
+
+df = data.frame(rbind(df_stool, df_skin))
+df$species.new = plyr::revalue(df$group, 
+                                         c("Malassezia sloofiae"="M. slooffiae",           
+                                           "Staphylococcus pettenkoferi"= "S. pettenkoferi" ,
+                                            "Staphylococcus aureus"= "S. aureus" ,
+                                           "Proteus mirabilis"   = "P. mirabilis" ,
+                                           "Morganella morganii" ="M. morganii", 
+                                             "Klebsiella pneumoniae"  ="K. pneumoniae" ,
+                                             "Providencia stuartii"   = "P. stuartii" ,
+                                              "Acinetobacter baumannii" ="A. baumannii",
+                                             "Escherichia coli" = "E. coli",
+                                             "Pseudomonas aeruginosa" ="P. aeruginosa",
+                                           "Enterococcus faecalis" = "E. faecalis",
+                                            "Malassezia slooffiae" ="M. slooffiae"
+                                     ))    
+
+
+mycolors1=c("C. auris"= "#8B008B",
+      "M. slooffiae"="#BC80BD", 
+      "P. aeruginosa"="#C51B7D",
+      "P. mirabilis"="#FB8072",
+      "P. stuartii"=  "#FDB462"  ,
+      "E. coli"="#737000"   ,
+      "E. faecalis"="#E6F5D0"  ,
+      "A. baumannii"="#A1D76A" ,
+      "M. morganii"="#32612D" ,
+      "K. pneumoniae" = "#0D52BD", 
+      "S. aureus" = "#329D9C" ,
+      "S. pettenkoferi" = "gray")
+df = subset(df, )
+Fig5B= ggplot(df, aes(species.new, prev)) + 
+    facet_wrap(Body_Site~site, ncol=5) +
+    geom_col() + coord_flip() + theme_classic() +
+  ylab("prevalence")+theme(legend.position = "none") +
+    theme(axis.text.y = element_text(face = "italic")) +
+  theme(axis.title=element_text(size=6), axis.text =element_text(size=6)) + ylab("Species") + 
+  scale_y_continuous(limits = c(0, 100)) +theme(axis.text.x=element_text(angle=90,hjust=1))
+
+Fig5B
+```
+
+
+```{r}
+#https://search.r-project.org/CRAN/refmans/cowplot/html/align_margin.html
+#https://search.r-project.org/CRAN/refmans/cowplot/html/align_margin.html
+plots <- list(Fig5A_New2, Fig5B)
+grobs <- lapply(plots, as_grob)
+plot_widths <- lapply(grobs, function(x) {x$widths})
+
+# Aligning the left margins of all plots
+aligned_widths <- align_margin(plot_widths, "first")
+# Aligning the right margins of all plots as well
+aligned_widths <- align_margin(aligned_widths, "last")
+# Setting the dimensions of plots to the aligned dimensions
+for (i in seq_along(plots)) {
+  grobs[[i]]$widths <- aligned_widths[[i]]
+}
+# Draw aligned plots
+plot_grid(plotlist = grobs, ncol = 1)
+Fig5_left = plot_grid(plotlist = grobs, ncol = 1, labels=c("A", "B"), rel_heights = c(1, 1))
+
+```
+
+
+### Figure 5C: 
+c) Single copy marker gene tree using 172 single copy marker genes from the E. coli MAGs from our study, as well as those assembled from the publicly available data. Several reference genomes are also included, which encompass sequence types commonly known to cause bloodstream or urinary tract infection, including ST131, ST73, ST95, and ST69. 
+
+```{r}
+#define a color palette
+mypalette<-brewer.pal(12,"Set3")
+
+#we define a color vector for centers 
+site_colors=c( "skin"="#C51B7D",
+                 "peri-anal"="#329D9C" ,
+               "stool"="#4D9221",
+               "control"="gray",
+               "reference"="black")
+center_colors= c("Chicago"  = "#FB8072",              
+                "CT"      ="#FFFFB3" ,             
+                "GERI_CD" = "#BEBADA",             
+                "RI" = "#8DD3C7" ,  
+                "CT SNF1"   = "#E6F5D0"  ,    
+                "CT SNF2"  ="#B3DE69"  ,          
+                "CT SNF4"  ="#CCEBC5"  ,            
+                "ST131" = "#FDB462" ,           
+                "ST69"  =  "#FCCDE5",            
+                "ST73"  ="#80B1D3",        
+                "ST95"  ="#BC80BD",          
+               "MA" = "#80B1D3")
+
+heatmap_colors=c( "skin"="#C51B7D",
+                 "peri-anal"="#329D9C" ,
+               "stool"="#4D9221",
+               "control"="gray",
+               "reference"="black",
+               "Chicago"  = "#FB8072",              
+                "CT"      ="#FFFFB3" ,             
+                "GERI_CD" = "#BEBADA",             
+                "RI" = "#8DD3C7" ,  
+                "CT SNF1"   = "#E6F5D0"  ,    
+                "CT SNF2"  ="#B3DE69"  ,          
+                "CT SNF4"  ="#CCEBC5"  ,            
+                "ST131" = "#FDB462" ,           
+                "ST69"  =  "#FCCDE5",            
+               "MA" = "#80B1D3")
+  
+
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/goToTree/go2Tree_out_newnames_otherNH_abx.tre")
+
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#first we plot the tree
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=4)
+
+#now let's annotate it with the body site
+dat = read.csv("~/Desktop/NATURE/ABX_SAMPLES/ecoli_combined_NH_gototreemap_v2.csv")
+dat$Center = dat$CenterName
+body.sites = data.frame(Body_Site=dat$body_site)
+rownames(body.sites) = dat$library_id
+
+
+#annotate the tree with body site
+#we don't plot the legend
+p4 = gheatmap(p1, body.sites,  width=0.1,
+               colnames_angle=95) +
+    scale_fill_manual(values=site_colors, na.value="lightgray") + 
+  theme(legend.position = "none")
+
+#here let's plot the legend for body site
+legend1= cowplot::get_legend(gheatmap(p1, body.sites,  width=0.1,
+               colnames_angle=95) +
+    scale_fill_manual(values=site_colors, na.value="lightgray", name="Body Site") )
+
+#now let's read in some metadata from the ST analysis that Sean Conlan performed  
+dat = read.csv("~/Desktop/NATURE/Figure5/ecoli_combined_NH_gototreemap_v2.csv")
+dat$node = dat$library_id
+dat$Center = dat$CenterName
+
+
+#let's make a matrix for annotating the phylogenetic tree
+#https://bioc.ism.ac.jp/packages/3.5/bioc/vignettes/ggtree/inst/doc/treeAnnotation.html
+sequenceType = data.frame(Site=dat$Center)
+rownames(sequenceType) = dat$node
+
+  
+
+#let's make the second color legend
+ legend2= cowplot::get_legend(gheatmap(p1, sequenceType,  width=0.1,
+               colnames_angle=95) +
+    scale_fill_manual(values=center_colors, na.value="lightgray", name="Center Name") ) 
+
+#now let's make the final panel
+ #note we use the large vector of colors here
+Fig5D = gheatmap(p4, sequenceType, width=0.1, offset=0.0005,
+               colnames_angle=95) +
+    scale_fill_manual(values=heatmap_colors,  na.value="lightgray") +
+  theme(legend.position = "none")
+
+#and let's plot the final panel with the two color legends
+Fig5DL = cowplot::plot_grid(legend1, legend2, ncol=1)
+#Fig5DL
+```
+
+### Figure 5D:  ANI networks
+
+d, e, f, g, h, i) Network analysis of ANI for each species from the RI facility. Each node represents a MAG. Edges between nodes are represented if pairwise ANI reaches or exceeds 99.9. j, k) Network analysis of ANI for each species from the CT facilities. Each node represents a MAG. Edges between nodes are represented if pairwise ANI reaches or exceeds 99.9.
+```{r}
+library(igraph)
+library(ggnet)
+library(ggnetwork)
+
+
+plot_ani_network  <- function(IMP, species) {
+    #we need to remove the same MAG comparisons
+    IMP = subset(IMP, V1 != V2)
+
+    #convert the table intro a matrix
+    matrix <- acast(IMP, V1~V2, value.var="V3")
+    #replace NA  with 0
+    matrix[is.na(matrix)] <- 0
+    #replace any value < 99.9 with 0
+    matrix[matrix < 99.9] <- 0
+    #replace any value >= 99.9 with 1
+    matrix[matrix > 0] <- 1 
+
+    #graph the network
+    network <- graph_from_incidence_matrix(matrix)
+
+    #let's get the subject information merged into the network info
+    df = ggnetwork(network)
+ 
+    AB_Network = ggplot(df, aes(x = x, y = y, xend = xend, yend = yend)) +
+      geom_edges(size=0.5) +
+      geom_nodes(size=1) +
+     theme_blank() + 
+      ggtitle(paste0(species)) +
+    theme(legend.position="none")
+    
+    return(AB_Network)
+}
+
+#read in the acinetobacter ANI table
+ec_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_ecoli_fastani.txt", header=FALSE)
+p1 = plot_ani_network(IMP=ec_blaser, species="RI: E.coli") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+kp_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_kleb_fastani.txt", header=FALSE)
+p2 = plot_ani_network(IMP=kp_blaser, species="K. pneumoniae") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+pm_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_proteus_fastani.txt", header=FALSE)
+
+p3 = plot_ani_network(IMP=pm_blaser, species="RI: P. mirabilis") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+#read in the acinetobacter ANI table
+ps_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_providencia_fastani.txt", header=FALSE)
+p4 = plot_ani_network(IMP=ps_blaser, species="P. stuartii") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+pa_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_pseudomonas_fastani.txt", header=FALSE)
+p5 = plot_ani_network(IMP=pa_blaser, species="P. aeurginosa") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+sp_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_staph_fastani.txt", header=FALSE)
+p6 = plot_ani_network(IMP=sp_blaser, species="S. pettenkoferi") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+ef_blaser = data.table::fread("~/Desktop/NATURE/qc_combined_NH/blaser_ANI/blaser_efaecalis_pairwise_fastani.txt", header=FALSE)
+p90 = plot_ani_network(IMP=ef_blaser, species="E. faecalis") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+grid.arrange(p1, p2, p3, p4, p5, p6, p90, ncol=6)
+```
+
+let's read in the Oh MAGs
+```{r, fig.height=4}
+#read in the acinetobacter ANI table
+sp_oh = data.table::fread("~/Desktop/NATURE/qc_combined_NH/oh_ANI/oh_staphp_fastani.txt", header=FALSE)
+p7 = plot_ani_network(IMP=sp_oh, species="CT: S. pettenkoferi") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+#read in the acinetobacter ANI table
+ec_oh = data.table::fread("~/Desktop/NATURE/qc_combined_NH/oh_ANI/oh_ecoli_fastani.txt", header=FALSE)
+p8 = plot_ani_network(IMP=ec_oh, species="CT: E.coli") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+sa_oh = data.table::fread("~/Desktop/NATURE/qc_combined_NH/oh_ANI/oh_aureus_pairwise_fastani.txt", header=FALSE)
+p9 = plot_ani_network(IMP=sa_oh, species="CT: S. aureus") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+kp_oh = data.table::fread("~/Desktop/NATURE/qc_combined_NH/oh_ANI/oh_kleb_pairwise_fastani.txt", header=FALSE)
+p10 = plot_ani_network(IMP=kp_oh, species="K. pneumoniae") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+grid.arrange(p7, p8, p9, p10, ncol=4)
+```
+
+let's look at the MA MAGs - we only assembled klebsiella and ecoli out of them
+```{r}
+kp_ma = data.table::fread("~/Desktop/NATURE/qc_combined_NH/otherNH/otherNH_kleb_fastani.txt", header=FALSE)
+p11 = plot_ani_network(IMP=kp_ma, species="MA: K. pneumoniae") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+
+ec_ma = data.table::fread("~/Desktop/NATURE/qc_combined_NH/otherNH/otherNH_ecoli_fastani.txt", header=FALSE)
+p12 = plot_ani_network(IMP=ec_ma, species="MA: E.coli") +
+  theme(plot.title = element_text(hjust = 0.5, size = 6, face = "italic"))
+
+grid.arrange(p11, p12, ncol=2)
+Fig5_lower =  cowplot::plot_grid(p1, p3, p7, p8,  p11, p12, labels=c("D", "", "", "", "", "", ""), nrow = 1)
+
+```
+
+
+### let's plot  figure 5
+
+Figure 5: Other nursing homes experience widespread sharing of ESKAPE pathogens. a)  The relative abundance of each of the select species for ~1300 publicly available samples, as determined by the fraction of unique reads mapping to each of 321 dereplicated MAGs. Each panel represents a different facility. Species with reads mapping to species other than those listed in the legend are shaded in blue. b) The prevalence of each species within each facility. Presence was determined using 30% breadth of coverage threshold. c) Single copy marker gene tree using 172 single copy marker genes from the E. coli MAGs from our study, as well as those assembled from the publicly available data. Several reference genomes are also included, which encompass sequence types commonly known to cause bloodstream or urinary tract infection, including ST131, ST73, ST95, and ST69. d, e, f, g, h, i) Network analysis of ANI for each species from the RI facility. Each node represents a MAG. Edges between nodes are represented if pairwise ANI reaches or exceeds 99.9. j, k) Network analysis of ANI for each species from the CT facilities. Each node represents a MAG. Edges between nodes are represented if pairwise ANI reaches or exceeds 99.9.
+
+
+```{r, fig.height=12, fig.width=12}
+Fig5_Upper = cowplot::plot_grid(Fig5_left, Fig5D, Fig5DL, ncol=3,  labels=c("","C"), rel_widths = c(2,1, 0.25))
+Fig5 = cowplot::plot_grid(Fig5_Upper, Fig5_lower, nrow=2, rel_heights = c(1, 0.25))
+Fig5
+ggsave(Fig5, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Figure5.pdf", device="pdf", height = 9, width = 12)
+```
+
