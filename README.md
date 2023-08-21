@@ -1,6 +1,8 @@
 # ESKAPE
 Code necessary to reproduce findings in the Cauris Great ESKAPE manuscript
-Title: Human skin as a reservoir for Candida auris and ESKAPE pathogens: transmissible microbes and antibiotic resistance in nursing homes 
+
+*Title*: 
+Human skin as a reservoir for Candida auris and ESKAPE pathogens: transmissible microbes and antibiotic resistance in nursing homes 
 
 *Authors*:
 Diana M. Proctor1, Sarah E. Sansom2, Clay Deming1, Sean Conlan1, Ryan A. Blaustein 1,3 Thomas K. Atkins1,4 , NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+* and Julia A. Segre 1+*
