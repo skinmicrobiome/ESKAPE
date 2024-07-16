@@ -1,0 +1,886 @@
+---
+title: "Figure 1: Recovery of MAGs for WHO Critical Priority Pathogens at high relative abundance "
+author: "Diana Proctor"
+date: "05/17/2022"
+output: html_document
+---
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+***
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+*draft: submission to Nature, August 2023*
+
+*Manuscript Title*: Fungal Candida auris and bacterial ESKAPE pathogens:  Human skin as a reservoir for transmissible microbes and antibiotic resistance in nursing homes
+
+*Authors*: Diana M. Proctor 1, Sarah E Sansom2, Clay Deming1, Sean Conlan1, Ryan A Blaustein1,3, Thomas K. Atkins1,4, NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+ and Julia A. Segre 1+
+
+*Affiliations*:
+
+1Microbial Genomics Section, Translational and Functional Genomics Branch, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA
+
+2 Department of Internal Medicine, Division of Infectious Diseases, Rush University Medical Center, Chicago, IL 60612, USA.
+
+3 Current Address: Department of Nutrition and Food Science, University of Maryland, College Park, MD 20742, USA
+
+4 Current Address: Department of Quantitative and Computational Biology, Princeton University, Princeton, NJ
+
+5 NIH Intramural Sequencing Center, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA.
+
+6 Dermatology Branch, National Institute of Arthritis and Musculoskeletal and Skin Diseases, National Institutes of Health, Bethesda, MD 20892, USA
+
+
++Contributed equally
+
+---
+
+Make figure 1 and supplementary figures 1-2.
+
+
+```{r global_options}
+library(knitr)
+opts_chunk$set(fig.width=12, fig.height=8, 
+               echo=TRUE, warning=FALSE, message=FALSE, error = FALSE)
+```
+
+load packages 
+```{r load packages, message=FALSE, warning=FALSE}
+ #load package method from from Dan Sprokett
+
+# set seed
+set.seed(78979)
+
+
+#define packages
+packages <- c("stringr", 
+              "ggplot2", 
+              "tidyverse", 
+              "ComplexHeatmap", 
+              "gridExtra", 
+              "fantaxtic", 
+              "pals", 
+              "reshape2",
+              "phyloseq",
+              "ggpubr",
+              "RColorBrewer",
+              "confintr",
+              "cowplot")
+
+# install packages from bioconductor
+BiocManager::install(setdiff(packages,installed.packages()), update=FALSE)
+n <- length(packages) - sum(sapply(packages,require,character.only=TRUE))
+
+# print if packages loaded properly
+if(n == 0){
+  print("All necessary R packages loaded properly")
+} else {
+  print(paste0(n, " R packages did not load properly"))
+}
+```
+
+define color palette
+```{r}
+mycolors=c("Candida auris"= "#8B008B",
+      "Pseudomonas aeruginosa"="#C51B7D",
+      "Proteus mirabilis"="#FB8072",
+      "Providencia stuartii"=  "#FDB462"  ,
+      "Escherichia coli"="#737000"   ,
+      "Acinetobacter baumannii"="#A1D76A" ,
+      "Morganella morganii"="#32612D" ,
+      "Klebsiella pneumoniae" = "#0D52BD", 
+      "Staphylococcus pettenkoferi" = "#329D9C" ,
+      "Staphylococcus" = "gray",
+      "Eisenbergiella tayi"="#FFFFB3",   
+      "Acidaminococcus intestini"= "#BEBADA" ,
+      "Alistipes onderdonkii"="#FCCDE5",
+      "Akkermansia muciniphila_B"="#BC80BD" ,
+      "Hungatella effluvii"= "#CCEBC5",
+      "Blautia_A sp900551465"="#FFED6F",
+      "Bacteroides uniformis"="#D49A73",
+      "Ruminococcus_B gnavus"="brown",
+      "Parabacteroides distasonis"="#BABF77" ,
+      "Eisenbergiella porci"="#AAD852",
+      "Phocaeicola vulgatus"="#CBD844",
+      "Alcaligenes phenolicus"="#ECD836",
+      "Clostridium_Q symbiosum" ="#FAD53E" ,
+      "UMGS693 sp900544555"= "#F1CD64",
+      "Bacteroides fragilis"="#D7BF9C" )
+
+
+kraken_colors=c("Candida"= "#8B008B",
+      "Pseudomonas"="#C51B7D",
+      "Proteus"="#FB8072",
+      "Providencia"=  "#FDB462"  ,
+      "Escherichia"="#737000"   ,
+      "Acinetobacter"="#A1D76A" ,
+      "Morganella"="#32612D" ,
+      "Klebsiella" = "#0D52BD", 
+      "Staphylococcus" = "gray" )
+
+
+```
+
+
+
+### Let's make figure 1
+
+read in the *unique.tab files, generated using read mapping, and create a phyloseq object
+```{r}
+path <- "~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/09_mapping_batch3_combined"
+
+#read in the read mapping results
+bwaOut <- sort(list.files(path, pattern="*unique.tab", full.names = TRUE))
+
+# Extract sample names
+sample.names <- sapply(strsplit(basename(bwaOut), "/"), `[`, 1)
+sample.names = stringr::str_remove_all(sample.names, "_mapping_eukBacBins.derep_contam5_unique.tab")
+
+#read in the files and store them in a list
+TSV.list <- vector("list", length(sample.names))
+  for(i in 1:length(sample.names)) {
+        df  = data.table::fread(bwaOut[i])
+        colnames(df) = c("Genome", "Length", "Counts", "Depth", "Coverage", "Coeff")
+        df$Counts_Adjusted_30p = ifelse(df$Coverage <50, 0, df$Counts)
+        df = dplyr::select(df,"Genome","Counts_Adjusted_30p")
+        colnames(df) = c("Genome", paste0(sample.names[i], "_", "Counts_Adjusted_30p"))
+      TSV.list[[i]] =  df
+}
+
+#now let's turn this list into a data frame
+dt<-rlist::list.cbind(TSV.list)
+Genome = dt$Genome
+data <- dplyr::select(dt, -Genome)  
+data = data.frame(data)
+rownames(data) = Genome
+
+#we need to fix column names so they are just metcodes
+mynames = stringr::str_remove_all(colnames(data), "_Counts_Adjusted_30p")
+colnames(data) = mynames
+
+#fix genome names so that they don't have .fa and can be merged with gtdbk output
+rownames(data) = stringr::str_remove_all(rownames(data), ".fa")
+
+#make the otu table
+otus = phyloseq::otu_table(data, taxa_are_rows = TRUE)
+
+#make the taxonomy table
+#note that  i separated the classificatioon variable in to linnaean tax classes in Excel
+#i labeled the tax classes with domain, phylum, etc. all lower case
+#i also changed genome to user_genome
+  tax =read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/05_gtdbk/gtdbtk.arcbacfun120.summary_2024-06-26_v2.0.csv") %>%
+    dplyr::select(., c("user_genome","domain", "phylum", "class", "order", "family", "genus", "species"))
+
+
+#clean up the taxa names
+tax$user_genome = str_remove_all(tax$user_genome, ".fa")
+#turn the gtdbk data into a taxonomy table for phyloseq
+taxa.names = tax$user_genome
+tax = phyloseq::tax_table(as.matrix((tax)))
+phyloseq::taxa_names(tax) = taxa.names
+
+#read in the metagenome metadata 
+map = map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv") %>%
+  subset(., library_id %in% c(sample_names(otus), "Met5675sub"))
+map = sample_data(map)
+sample_names(map) = map$library_id
+
+subjects_for_table1 = data.frame(unique(map$Unique_ptid))
+#write.csv(subjects_for_table1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable1_subjects.csv")
+#now merge the mapping file, taxonomy table and otu table into phyloseq
+phy = phyloseq(otus, sample_data(map), tax) 
+colnames(sample_data(phy))[8] = "Label"
+
+#drop duplicate samples
+phy = subset_samples(phy, !(library_id %in% c("Met8644", "Met7514", "Met7516", "Met7517"))) %>%
+  subset_samples(., !(site_specific %in% c("Ctrl", "ZymoD6306", "Bu/To")))
+
+#duplicates: "Met8644", "Met7514", "Met7516", "Met7517"
+#controls: N=5:"Met4890" "Met8685" "Met8692" "Met8706" "Met8718"
+#Zymo = 2: "Met8733", "Met8666"
+#3 Bu/To: "Met6290" "Met6292" "Met6297"
+#drop duplicate 13 samples
+phy = subset_samples(phy, !(library_id %in% c("Met8644", "Met7514", "Met7516", "Met7517"))) %>%
+  subset_samples(., !(site_specific %in% c("Ctrl", "ZymoD6306", "Bu/To")))
+
+#saveRDS(phy, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/ESKAPE_phyloseq_50percentcoveragethreshold_submitted.rds")
+```
+
+
+Let's create a grouping variable where we identify the species we're interested in by their species name and label everything else as other.
+```{r}
+#define the taxa of interest
+taxa_of_interest = c("Candida auris" ,
+      "s__Escherichia coli",
+      "s__Klebsiella pneumoniae" ,
+     "s__Acinetobacter baumannii",
+      "s__Pseudomonas aeruginosa",
+      "s__Proteus mirabilis",
+      "s__Providencia stuartii",
+      "s__Staphylococcus pettenkoferi",
+     "s__Staphylococcus aureus",
+     "s__Morganella morganii"
+ )
+
+
+#create a phyloseq object of the taxa of interest
+myTaxa = subset_taxa(phy, species %in% taxa_of_interest)
+tax = data.frame(myTaxa@tax_table@.Data)
+tax$group = tax$species
+
+#annotate the taxonomy table for the new phyloseq object defining species of interest     
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(myTaxa) = tax
+
+
+
+#create a phyloseq object for the species that are NOT in the taxa of interest vector and annotate the tax table
+notMyTaxa = subset_taxa(phy, !(species %in% taxa_of_interest))
+tax = data.frame(notMyTaxa@tax_table@.Data)
+tax$group ="Other"
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(notMyTaxa) = tax
+
+#merge the two newly created phyloseq objects so we have one containing a grouping variable
+newPhy = merge_phyloseq(notMyTaxa, myTaxa) %>%
+  subset_samples(., !(site_specific %in% c("Tc", "Ne", "Ea", "Ax")))
+sample_data(newPhy)$SubSite = paste0(sample_data(newPhy)$Unique_ptid, ";", sample_data(newPhy)$site_specific)
+
+```
+
+let's look at the relative abundance of just candida auris
+```{r}
+#transform relative abundance and subset on cauris
+RA = transform_sample_counts(newPhy, function(x) x/sum(x))
+auris = subset_taxa(RA, species=="Candida auris") %>%
+  prune_samples(sample_sums(.) > 0, .)
+
+#plot so we can get the data out of phyloseq easily
+p = plot_bar(auris, x="Unique_ptid", y="Abundance")
+aurisDat = p$data
+aurisDat$Unique_ptid = factor(aurisDat$Unique_ptid, levels=1:60)
+      
+# the relative abundance doesn't vary significantly across sites
+p = ggplot(aurisDat, aes(site_specific, Abundance)) + geom_boxplot() + 
+  scale_y_log10() + stat_compare_means() 
+```
+
+
+
+### Let's generate Figure 1C:  Relative abundance of each of the select species including C. auris and ESKAPE pathogens. Panels, colors, and sample order are as in panel a.
+But first, we need to merge time points, summing across temporal pseudoreplicates and then transform to relative abundance
+
+C) Relative abundance of each of the select species. Panels, colors, and sample order are as in panel B. Bars do not reach 100% relative abundance as only reads mapping to fungal and bacterial species in panel B are shown with many skin commensals not shown for clarity. 
+```{r}
+timePhy = merge_samples(newPhy, "SubSite", fun = sum)
+newmap = colsplit(sample_names(timePhy), ";", c("Unique_ptid", "site_specific"))
+rownames(newmap) = sample_names(timePhy)
+sample_data(timePhy) = sample_data(newmap)
+timePhy2 = transform_sample_counts(timePhy, function(x) x/sum(x))
+
+#fix the body site labels
+sample_data(timePhy2)$Body_Site = plyr::revalue(sample_data(timePhy2)$site_specific, c("An" = "Peri-anal",
+                                "Ic"="Inguinal crease", 
+                                "N"="Nares",
+                                "Fg"="Fingertips",
+                                "Tw"= "Toe web"))
+
+
+#force the ordering of the data frame so it'll plot in the order we want
+ordering = c( "Toe web" , "Fingertips" , "Nares", "Ear Canal", "Peri-anal",   "Inguinal crease")
+sample_data(timePhy2)$Body_Site <- factor(sample_data(timePhy2)$Body_Site, levels = ordering) 
+
+#let's generate a stacked barplot. we'll extract the data from this plot
+p = plot_bar(timePhy2, x="Sample", y="Abundance", fill="group") + 
+  geom_bar(aes(color=group, fill=group), stat="identity", position="stack")+
+  facet_wrap(~site_specific, scales="free_x", ncol=7) 
+    
+
+#let's get the data out of the previous plot and subset on just our select species
+dat = p$data
+dat = subset(dat, group !="Other") 
+
+#let's define a variable to order the species by so Candida auris is always on top
+ordering = c("Candida auris",
+      "Acinetobacter baumannii",
+      "Escherichia coli" ,
+      "Klebsiella pneumoniae", 
+       "Morganella morganii",
+      "Proteus mirabilis",
+      "Providencia stuartii",
+      "Pseudomonas aeruginosa",
+      "Staphylococcus aureus",
+      "Staphylococcus pettenkoferi"
+      )
+#clean up the species names in group
+dat$group = stringr::str_remove_all(dat$group, "s__")
+
+
+#order subjects 1 to 50
+myorder = c( 1:7,  9, 11:20, 22:23, 25:28, 30:35, 38:41, 43, 46, 48, 49, 52, 53, 54, 57)
+dat$Unique_ptid = factor(dat$Unique_ptid, levels=myorder)
+
+#what subjects are not shown in this figure
+all_subjects = unique(map$Unique_ptid)
+missing_subjects = setdiff(all_subjects, unique(dat$Unique_ptid))
+
+#now let's make figure 1b
+Fig1B = ggplot(dat, aes(Unique_ptid, Abundance, fill=group)) + 
+  geom_col(position="stack") + 
+  theme_classic()+
+  facet_wrap(~Body_Site, ncol=5) +
+  scale_fill_manual(values=mycolors) +
+  theme(axis.text.y = element_text(size = 8),
+        axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank() #remove x axis ticks
+          ) +  theme(legend.position = "none")+ xlab("Study Subject (Ordered by ID)")
+
+Fig1B
+```
+
+
+
+#### Generate Figure 1B -- all subjects and time points
+
+B) MAGs recovered from each nursing home resident at any timepoint, sampling 5 body sites. Species recovered are in rows. Each point represents an analyzed sample and large points indicate a MAG was recovered. The top panel includes the ESKAPE pathogens; middle panel includes uropathogens; bottom panel includes C. auris and a commensal correlated with C. auris abundance. Colors correspond to the species. The body site is labeled on top. 
+
+```{r}
+#let's read in the MAG data
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/05_gtdbk/gtdbtk.arcbacfun120.summary_2024-06-26_v2.0.csv") 
+df$library_id = stringr::str_sub(df$user_genome, 1, 7)
+
+  
+df$sub_site = paste0(df$Unique_ptid, ";", df$site_specific)
+crossTab = data.frame(table(df$species,df$sub_site)) %>%
+    subset(., Var1 %in% taxa_of_interest)
+
+
+#let's make a denovo mapping file and drop the body sites that don't make it into the main display
+newmap = reshape2::colsplit(crossTab$Var2, ";", c("subject", "site"))
+crossTab = data.frame(crossTab, newmap) %>%
+  subset(., !(site %in% c("Bu/To" ,"Ne",    "Ctrl", "Tc", "Ea", "Ax", "", "ZymoD6306")))
+
+
+#let's clean up the body site names
+crossTab$Body_Site = plyr::revalue(crossTab$site,
+                              c("An" = "Peri-anal",
+                                "Ic"="Inguinal crease", 
+                                "N"="Nares",
+                                "Fg"="Fingertips",
+                                "Tw"= "Toe web"))
+
+#let's specify the order of the panels we'd like to use and force the data frame to follow this order
+site_ordering = c("Toe web","Fingertips", "Nares","Peri-anal", "Inguinal crease")
+crossTab$Body_Site=factor(crossTab$Body_Site, levels = site_ordering) 
+crossTab0 = crossTab
+crossTab$Freq = ifelse(crossTab$Freq> 0, 1, crossTab$Freq)
+
+#clean up the species names
+crossTab$group = stringr::str_remove_all(crossTab$Var1, "s__")
+
+#order subjects 1 to 50
+myorder = c( 1:7,  9, 11:20, 22:23, 25:28, 30:35, 38:41, 43, 46, 48, 49, 52, 53, 54, 57)
+crossTab$Unique_ptid = factor(crossTab$subject, levels=myorder)
+
+##which subjects are missing from this table? none!
+missing_subjects = setdiff(unique(map$Unique_ptid), unique(crossTab$Unique_ptid))
+
+
+####Let's group ESKAPE Pathogens
+eskape = subset(crossTab, group %in% c("Escherichia coli", "Staphylococcus aureus", 
+                                       "Klebsiella pneumoniae"  ,
+                                         "Acinetobacter baumannii", "Pseudomonas aeruginosa"))
+eskape$group = stringr::str_remove_all(eskape$Var1, "s__")
+myorder = c("Pseudomonas aeruginosa", "Acinetobacter baumannii","Klebsiella pneumoniae", "Staphylococcus aureus", "Escherichia coli")
+                                        
+eskape$group = factor(eskape$group, levels=myorder)
+
+uropathogens = subset(crossTab, group %in% c("Morganella morganii",   "Proteus mirabilis",           "Providencia stuartii" ))
+
+other = subset(crossTab, group %in% c("Staphylococcus pettenkoferi", "Candida auris"   ))
+
+
+
+plot_fig1a= function(x){
+  ggplot(x, aes(Unique_ptid, group, color=group, size=Freq)) + geom_point()+ theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=6)) + 
+  facet_wrap(~Body_Site, ncol=7, scales="free_x") +
+  scale_color_manual(values=mycolors) + 
+  theme(legend.position = "none") + 
+  xlab("") + 
+  ylab("")+
+  scale_size_continuous(range = c(0, 1)) +
+  theme(axis.text.y = element_text(face = "italic"),
+        axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank() #remove x axis ticks
+          ) 
+
+}
+
+
+#make figure 1a panels
+Fig1A_Top = plot_fig1a(x=eskape)+ theme(plot.margin = unit(c(0, 0, 0, 0), "cm"))
+Fig1A_Bottom = plot_fig1a(x=other)+ 
+  theme(strip.background = element_blank(),
+  strip.text.x = element_blank(),
+  plot.margin = unit(c(0, 0, 0, 0), "cm")) 
+Fig1A_Middle = plot_fig1a(x=uropathogens)+ 
+  theme(strip.background = element_blank(),
+  strip.text.x = element_blank(),
+  plot.margin = unit(c(0, 0, 0, 0), "cm"))
+
+
+
+
+```
+
+how many mags from unique samples for each species
+```{r}
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Acinetobacter baumannii") #40 from 33 unique samples
+length(unique(ac$library_id))
+
+
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Escherichia coli") #55 from 36 unique samples
+length(unique(ac$library_id))
+
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Klebsiella pneumoniae") #81 from 60 unique samples
+length(unique(ac$library_id))
+
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Morganella morganii") #65 from 50 unique samples
+length(unique(ac$library_id))
+
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Proteus mirabilis") #164 from 113 unique samples
+length(unique(ac$library_id))
+       
+       
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Providencia stuartii") #167 from 118 unique samples
+length(unique(ac$library_id))
+       
+       
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Pseudomonas aeruginosa") #86 from 67 unique samples
+length(unique(ac$library_id))
+       
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Staphylococcus aureus") #5 from 1 true sample/others positive controls
+length(unique(ac$library_id))
+       
+
+fm = subset(df, species %in% taxa_of_interest)
+ac = subset(fm, species=="s__Staphylococcus pettenkoferi") #128 from 90 unique samples
+length(unique(ac$library_id))
+       
+       
+```
+
+### Figure 1
+Figure 1: Recovery of MAGs for C. auris, ESKAPE genomes and other predominant bacteria from nursing home resident body site sampling. A) Diagram of clinical study design including sampling, sequencing and analysis. NCBI is a publicly available database. B) MAGs recovered from each nursing home resident at any timepoint, sampling 5 body sites. Species recovered are in rows. Each point represents an analyzed sample and large points indicate a MAG was recovered. The top panel includes the ESKAPE pathogens; middle panel includes uropathogens; bottom panel includes C. auris and a commensal correlated with C. auris abundance. Colors correspond to the species. The body site is labeled on top. C) Relative abundance of each of the select species. Panels, colors, and sample order are as in panel B. Bars do not reach 100% relative abundance as only reads mapping to fungal and bacterial species in panel B are shown with many skin commensals not shown for clarity. Panel A was created in biorender and isn't shown.
+
+```{r}
+### plot the figure
+#https://search.r-project.org/CRAN/refmans/cowplot/html/align_margin.html
+#https://search.r-project.org/CRAN/refmans/cowplot/html/align_margin.html
+plots <- list(Fig1A_Top,  Fig1A_Middle,Fig1A_Bottom, Fig1B)
+grobs <- lapply(plots, as_grob)
+plot_widths <- lapply(grobs, function(x) {x$widths})
+
+# Aligning the left margins of all plots
+aligned_widths <- align_margin(plot_widths, "first")
+# Aligning the right margins of all plots as well
+aligned_widths <- align_margin(aligned_widths, "last")
+# Setting the dimensions of plots to the aligned dimensions
+for (i in seq_along(plots)) {
+  grobs[[i]]$widths <- aligned_widths[[i]]
+}
+# Draw aligned plots
+Figure1=plot_grid(plotlist = grobs, ncol = 1, rel_heights = c(0.75, 0.4, 0.4, 1.5),
+                  labels=c("B", "", "", "C"))
+
+ggsave(Figure1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/Figure1.pdf", device="pdf", width =11, height = 6)
+
+```
+
+let's see if the frequency of detection on different body sites is significantly different
+```{r}
+#let's read in the MAG data
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable3_all_annotated_passonly_nodups_assembler.csv") %>%
+  subset(., is.failure != "yes")
+  
+#merge the gtdbk and mapping data and then identify the samples that gave rise to MAGs by cross-tabulating 
+#we subset the big data table on just the species of interest in figure 1B
+df = df %>%
+  subset(., !(site_specific %in% c("Bu/To", "Ctrl", "ZymoD6306")))
+
+df$site_survey = paste0(df$site_specific, ";", df$Survey_Period)
+crossTab = data.frame(table(df$species,df$site_survey)) %>%
+    subset(., Var1 %in% taxa_of_interest)
+
+map = colsplit(crossTab$Var2, ";",  c("site", "survey"))
+df = data.frame(crossTab, map) %>%
+  subset(., !(site %in% c("Ax", "Ea", "Ne")))
+
+p = ggplot(df, aes(site, Freq)) + geom_boxplot() + stat_compare_means()
+p
+```
+
+
+let's see how many MAGs we recover per sample, for these select species. >68% samples yield a MAG and more than 20% of samples yield 4
+```{r, fig.height=4, fig.width=4}
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable3_all_annotated_passonly_nodups_assembler.csv") %>%
+  subset(., is.failure != "yes")
+df$prev =1
+SelectSp = subset(df, species %in% taxa_of_interest)
+PrevBySample = doBy::summary_by(prev~library_id, FUN=c(sum, length), data=SelectSp)
+PrevBySample$Number = 1:nrow(PrevBySample)
+p = ggplot(PrevBySample, aes(prev.sum)) + geom_histogram(bins=20) + theme_classic() 
+p
+
+#how many samples yielded at least one MAG for these species?
+map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv")
+fm = subset(PrevBySample, prev.sum > 0)
+nrow(fm)/length(unique(map$library_id))  #428 is the number of samples in map
+
+#how many samples yielded 4 or more of these select species
+fm = subset(PrevBySample, prev.sum >= 4)
+nrow(fm)/length(unique(map$library_id))
+```
+
+
+
+how many of the MAG's had greater than 80% aligned fraction for each species? 
+```{r, eval=FALSE}
+gtdbk = subset(df , species %in% taxa_of_interest)
+gtdbk$greaterthan80 = ifelse(gtdbk$msa_percent> 80, 1, 0)
+mysummary = doBy::summary_by(greaterthan80~species, FUN=c(sum, length), data=gtdbk)
+
+p = ggplot(mysummary, aes(species, greaterthan80.sum/greaterthan80.length)) + geom_col() + coord_flip()
+p
+```
+
+
+
+what is the breadth and depth of coverage for each of these species
+read in the *unique.tab files, generated using read mapping and include ALL the reads
+```{r, eval=TRUE}
+path <- "~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/09_mapping_batch3_combined" 
+
+# Forward and reverse fastq filenames have format: cat.tsv, the output of the blast searches on the 4 genomes
+bwaOut <- sort(list.files(path, pattern="*unique.tab", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(bwaOut), "/"), `[`, 1)
+sample.names = stringr::str_remove_all(sample.names, "_mapping_eukBacBins_aureus.derep_unique.tab")
+
+#read in the files and store them in a list
+TSV.list <- vector("list", length(sample.names))
+  for(i in 2:length(sample.names)) {
+        df  = data.table::fread(bwaOut[i])
+        colnames(df) = c("Genome", "Length", "Counts", "Depth", "Coverage", "Coeff")
+      TSV.list[[i]] =  data.frame(df)
+}
+
+
+data = do.call(rbind, TSV.list)
+data$Genome = stringr::str_remove_all(data$Genome, ".fa")
+
+#subset on depth exceeds 1x
+covExceeds5 = subset(data, Depth > 0)
+colnames(covExceeds5)[1] = "user_genome"
+
+#read in the gtdbk file again and subset on the select species
+tax =read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/05_gtdbk/gtdbtk.arcbacfun120.summary_2024-06-26_v2.0.csv") %>%
+  dplyr::select(., c("user_genome", "domain", "phylum", "class", "order", "family", "genus", "species")) %>%
+  subset(., species %in% c("s__Staphylococcus pettenkoferi" , 
+                           "s__Escherichia coli", 
+                           "s__Klebsiella pneumoniae" ,
+                          "s__Acinetobacter baumannii" ,  
+                          "s__Pseudomonas aeruginosa" , 
+                          "Candida auris" ,  
+                          "s__Providencia stuartii",
+                          "s__Proteus mirabilis"))
+
+#subset the coverage data frame to only include the taxa of interest
+covExceeds5 = subset(covExceeds5, user_genome %in% tax$user_genome)
+foo = merge(tax, covExceeds5) %>%
+  reshape2::melt(., colnames(tax)) %>%
+  subset(., variable %in% c("Depth", "Coverage"))
+
+#create a depth data frame
+depth = subset(foo, variable=="Depth")
+#create a breadth data frame
+cov = subset(foo, variable=="Coverage") %>%
+  subset(., value > 30)
+
+#define a function to get confidence intervals
+get_value_CI <- function(df, species) {
+  my_ac = ci_mean(df$value,
+      probs = c(0.025, 0.975),
+      type =  "bootstrap",
+      boot_type = "basic",
+      R = 9999,
+      seed = 834)
+  df = data.frame(CI_lower=my_ac$interval[1], CI_upper=my_ac$interval[2], average=my_ac$estimate, 
+                  species=paste0(species))
+}
+```
+
+
+
+### Supplementary Table 5: get summary stats for the depth of coverage 
+
+
+```{r, eval=TRUE}
+ac = subset(depth, species=="s__Acinetobacter baumannii") %>%
+  get_value_CI(., "Acinetobacter baumannii")
+ec = subset(depth, species=="s__Escherichia coli") %>%
+  get_value_CI(., "Escherichia coli")
+kp = subset(depth, species=="s__Klebsiella pneumoniae") %>%
+  get_value_CI(., "Klebsiella pneumoniae")
+pm = subset(depth, species=="s__Proteus mirabilis") %>%
+  get_value_CI(., "Proteus mirabilis")
+ps = subset(depth, species=="s__Providencia stuartii") %>%
+  get_value_CI(., "Providencia stuartii")
+pa = subset(depth, species=="s__Pseudomonas aeruginosa") %>%
+  get_value_CI(., "Pseudomonas aeruginosa")
+sp = subset(depth, species=="s__Staphylococcus pettenkoferi") %>%
+  get_value_CI(., "Staphylococcus pettenkoferi")
+
+depth = data.frame(rbind(ac, ec, kp, pm, ps, pa, sp))
+depth$variable = "depth"
+kable(depth)
+```
+
+### get summary stats for the breath of coverage
+```{r, eval=TRUE}
+
+ac = subset(cov, species=="s__Acinetobacter baumannii") %>%
+  get_value_CI(., "Acinetobacter baumannii")
+ec = subset(cov, species=="s__Escherichia coli") %>%
+  get_value_CI(., "Escherichia coli")
+kp = subset(cov, species=="s__Klebsiella pneumoniae") %>%
+  get_value_CI(., "Klebsiella pneumoniae")
+pm = subset(cov, species=="s__Proteus mirabilis") %>%
+  get_value_CI(., "Proteus mirabilis")
+ps = subset(cov, species=="s__Providencia stuartii") %>%
+  get_value_CI(., "Providencia stuartii")
+pa = subset(cov, species=="s__Pseudomonas aeruginosa") %>%
+  get_value_CI(., "Pseudomonas aeruginosa")
+sp = subset(cov, species=="s__Staphylococcus pettenkoferi") %>%
+  get_value_CI(., "Staphylococcus pettenkoferi")
+
+coverage = data.frame(rbind(ac, ec, kp, pm, ps, pa, sp))
+coverage$variable = "breadth"
+
+STable5 = data.frame(rbind(coverage, depth))
+STable5$CI_lower = round(STable5$CI_lower, 2)
+STable5$CI_upper = round(STable5$CI_upper, 2)
+STable5$average = round(STable5$average, 2)
+#write.csv(STable5, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable5.csv")
+```
+
+
+what fraction of the Candida auris genomes aligned by mummer? we see that the maximum is 99% aligned while the median is 85% and the minimum is 51%
+```{r, eval=FALSE}
+df = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable4_eukaryote_annotated.csv", fileEncoding = "UTF-8") %>%
+  subset(., species="Candida auris") %>%
+  subset(., msa_percent > 0.5)
+
+summary(df$msa_percent)
+```
+
+### let's look at the experimental design, creating a supplementary figure
+Supplementary Figure 1: Schematic of samples used for whole genome sequencing (a) and shotgun metagenomics (b). Each point represents a sample. Samples for subjects are shown as a function of time (survey 1-3) with different body sites shown as facets within panels. Abbreviations for body sites are defined as An, Perianal; Fg fingertips/palm; Ic inguinal crease; N nares, and Tw Toe webs. Samples for select body sites are not displayed, including neck sample from subject 3; Bu/To samples from subjects 27, 37, 39; Tc sample from subject 43. 
+let's look at the complete dataset
+-- all samples from subjects at their first time point
+
+```{r}
+map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv") %>%
+  subset(., !(site_specific %in% c("ZymoD6306", "Tc", "Ne", "Ea", "Ax", "Ctrl", "Bu/To")))
+
+#subset on the complete subjects
+complete_subjects = c(12, 14, 15, 16, 18, 2, 23, 26, 27, 28, 3, 31, 33, 35, 4, 40,  53, 54) 
+
+t2t3 = subset(map, Unique_ptid %in% complete_subjects) %>%
+  subset(., Survey_Period %in% 1:3)
+
+Sfig1B = ggplot(t2t3, aes(Survey_Period, site_specific)) + 
+  facet_wrap(~Unique_ptid) +
+  geom_point() +
+  theme_classic()
+
+
+#plot samples for T1 shotgun
+myorder = 1:58
+#subset on T1
+map$Unique_ptid = factor(map$Unique_ptid, levels=myorder)
+survey1 = subset(map, Survey_Period==1) 
+sub35 = subset(map, Survey_Period==2 & Unique_ptid==35)
+sub27 = subset(map, Survey_Period==2 & Unique_ptid==27)
+sub18 = subset(map, Survey_Period==2 & Unique_ptid==18)
+sub38 = subset(map, Survey_Period==2 & Unique_ptid==38)
+
+
+df=data.frame(rbind(survey1, sub35, sub27, sub18, sub38))
+FigS1A = ggplot(df, aes(Unique_ptid, site_specific)) + geom_point()+
+  theme_classic()
+
+cowplot::plot_grid(FigS1A, Sfig1B, ncol = 1, rel_heights = c(1, 1), labels = "auto")
+ggsave(cowplot::plot_grid(FigS1A, Sfig1B, ncol = 1, rel_heights = c(1, 1), labels = "auto"), 
+       file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure1.png", width = 11, height = 8, device="png")
+
+```
+
+### let's make a figure of the experimental design -- supplemental figure 1
+
+```{r, eval=FALSE}
+#define a color palette
+mypalette12<-RColorBrewer::brewer.pal(12,"Set3")
+
+
+#read in the isolate sequencing manifest
+genomes = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable12_isolate.csv", fileEncoding = "UTF8") %>%
+  subset(., Source=="This study")
+map = colsplit(genomes$Sample.Name, "_", c("Facility", "Subject", "Site", "Survey"))
+genomes = data.frame(genomes, map)
+
+
+#order the skin sites
+genomes = subset(genomes, Site %in% c("An", "Ax/Ic",  "Fg", "N",  "Tw", "Ic"))
+
+
+#plot the genomes but only focus on the body sites of interest and the subjects of interest
+Sfig1A = subset(genomes, Subject %in% c("Sub35" ,"Sub46", "Sub53", "Sub14", "Sub15", "Sub23", "Sub5",
+                                        "Sub2",  "Sub28" ,"Sub4",  "Sub48")) %>%
+  ggplot(., aes(as.factor(Survey), as.factor(Site))) +
+  facet_wrap(~Subject) + 
+  geom_point() +
+  xlab("Survey Period") + 
+  ylab("Subject ID") +  
+  theme_classic()+ 
+  theme(legend.position = "none")
+
+#plot the isolage genomes by subject and survey
+Sfig1A
+```
+
+
+
+### Do we see an even smattering of gut taxa on the skin, or do we see a selection of species?
+
+To evaluate this, let's define the top 15 gut taxa and look at their relative abundance within samples. If we look at the vector gut_commensals we see that many of the species we see colonizing the skin (e.g., proteus, pseudomonas, etc. are in the top 15 gut species). But these other gut commensals tend to be restricted to the peri-anus and inguinal crease sites with some enrichment at the fingertips.
+
+```{r}
+#what are the top 50 species in the peri-anus
+perianus = subset_samples(newPhy, site_specific %in% c("An")) %>%
+  prune_taxa(taxa_sums(.) > 0, .)
+TopNOTUs = c(names(sort(taxa_sums(perianus), TRUE)[1:15]), "Pseudomonas aeruginosa")
+
+#now let's subset on the gut taxa on the dataset temporally merged
+gut_glom = prune_taxa(TopNOTUs, timePhy2)
+tax = data.frame(gut_glom@tax_table@.Data) 
+tax = subset(tax, species !="s__")
+gut_commensals = tax$species
+
+#create a phyloseq object of the taxa of interest
+myTaxa = subset_taxa(timePhy2, species %in% gut_commensals)
+tax = data.frame(myTaxa@tax_table@.Data)
+tax$group = ifelse(tax$group=="s__", "s__", "topGut")
+tax$group = ifelse(tax$species %in% taxa_of_interest, tax$species, tax$group)
+
+
+#annotate the taxonomy table for the new phyloseq object defining species of interest     
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(myTaxa) = tax
+
+
+
+#create a phyloseq object for the species that are NOT in the taxa of interest vector and annotate the tax table
+notMyTaxa = subset_taxa(timePhy2, !(species %in% gut_commensals))
+tax = data.frame(notMyTaxa@tax_table@.Data)
+names = tax$user_genome
+tax = as.matrix(tax)
+tax_table(notMyTaxa) = tax
+
+#merge the two newly created phyloseq objects so we have one containing a grouping variable
+myPhy = merge_phyloseq(notMyTaxa, myTaxa) %>%
+  subset_samples(., !(site_specific %in% c("Ctrl", "Tc", "Bu/To", "Ne", "Ea", "Ax", "Ctrl")))
+
+#make a plot from which we'll extract data
+p = plot_bar(myTaxa, x="Sample", y="Abundance", fill="group") + facet_wrap(~site_specific)
+pdf = p$data %>%
+  subset(., group != "Other")
+pdf$group = stringr::str_remove_all(pdf$group, "s__")
+
+
+#force the ordering of the data frame so it'll plot in the order we want
+ordering = c( "Toe web" , "Fingertips" , "Nares", "Ear Canal", "Peri-anal",   "Inguinal crease", "Control")
+pdf$Body_Site =factor(pdf$Body_Site , levels = ordering) 
+
+#order subjects 1 to 50
+myorder = c( 1:7,  9, 11:20, 22:23, 25:28, 30:35, 38:41, 43, 46, 48, 49, 52, 53, 54, 57)
+pdf$Unique_ptid = factor(pdf$Unique_ptid, levels=myorder)
+
+#transform to 100%
+pdf$Abundance = 100*pdf$Abundance
+pdf$species = stringr::str_remove_all(pdf$species, "s__")
+#let's look at relative abundance where top 50 gut taxa are defined
+R2R_1a = ggplot(pdf, aes(Unique_ptid, Abundance, fill=species)) + 
+  geom_col(position="stack") + 
+  theme_classic() +
+  facet_wrap(~Body_Site, ncol=5,scales="free_x") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  ylab("Percent Relative Abundance") +
+  scale_fill_manual(values=mycolors)
+
+
+pdf$is.skin = ifelse(pdf$site_specific %in% c("Tw", "Fg", "N"), "skin", pdf$site_specific)
+
+myorder = c("An", "Ic", "Fg", "Tw", "N")
+pdf$site_specific = factor(pdf$site_specific, levels=myorder)
+target = c("Providencia stuartii",       "Proteus mirabilis" ,         "Klebsiella pneumoniae",   "Morganella morganii",
+            "Escherichia coli", "Klebsiella pneumoniae" , "Pseudomonas aeruginosa")
+
+gutOnly = subset(pdf, species %in% c("Hungatella effluvii","Eisenbergiella porci", "Phocaeicola vulgatus"           ,                             "Eisenbergiella tayi" )) %>%
+  ggplot(., aes(site_specific, sqrt(Abundance))) + geom_boxplot() + 
+  facet_wrap(~species, scales="free_y", ncol=1) +
+  theme_classic() +
+  xlab("Site") +
+  ylab("Square Root Relative Abundance")
+
+
+
+inguinal = subset(pdf, species %in% c("Bacteroides fragilis", "Acidaminococcus intestini", 
+                                      "Blautia_A sp900551465",
+                                     "Alistipes onderdonkii","Bacteroides uniformis",
+                                      "Ruminococcus_B gnavus","Parabacteroides distasonis"  ))  %>%
+  ggplot(., aes(site_specific, sqrt(Abundance))) + geom_boxplot() + 
+  facet_wrap(~species, scales="free_y", ncol=1)+
+  theme_classic()+
+  xlab("Site") +
+  ylab("Square Root Relative Abundance")
+
+gut_com = stringr::str_remove_all(gut_commensals, "s__")
+targetPlot = subset(pdf, species %in% target )  %>%
+  ggplot(., aes(site_specific, sqrt(Abundance))) + geom_boxplot() + 
+  facet_wrap(~species, scales="free_y", ncol=1)+
+  theme_classic()+
+  xlab("Site") +
+  ylab("Square Root Relative Abundance")
+
+grid.arrange(inguinal, targetPlot, ncol=2)
+ggsave(grid.arrange(inguinal, targetPlot, ncol=3), file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure2.pdf", device="pdf", width = 12, height = 8.5)
+```
+
+

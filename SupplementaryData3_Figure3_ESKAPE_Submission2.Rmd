@@ -1,0 +1,1334 @@
+---
+title: "Figure 3: Widespread sharing of strains in this Nursing Home"
+author: "Diana Proctor"
+date: "6/2/2022"
+output: html_document
+---
+***
+
+last updated: `r format(Sys.Date(), format="%B %d %Y")`
+
+*draft: submission to Nature, August 2023*
+
+*Manuscript Title*: Fungal Candida auris and bacterial ESKAPE pathogens:  Human skin as a reservoir for transmissible microbes and antibiotic resistance in nursing homes
+
+*Authors*: Diana M. Proctor 1, Sarah E Sansom2, Clay Deming1, Sean Conlan1, Ryan A Blaustein1,3, Thomas K. Atkins1,4, NISC Comparative Sequencing Program5, Thelma Dangana2, Christine Fukuda2, Lahari Thotapalli2, Heidi H. Kong6, Michael Y. Lin2, Mary K. Hayden2+ and Julia A. Segre 1+
+
+*Affiliations*:
+
+1Microbial Genomics Section, Translational and Functional Genomics Branch, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA
+
+2 Department of Internal Medicine, Division of Infectious Diseases, Rush University Medical Center, Chicago, IL 60612, USA.
+
+3 Current Address: Department of Nutrition and Food Science, University of Maryland, College Park, MD 20742, USA
+
+4 Current Address: Department of Quantitative and Computational Biology, Princeton University, Princeton, NJ
+
+5 NIH Intramural Sequencing Center, National Human Genome Research Institute, National Institutes of Health, Bethesda, MD 20892, USA.
+
+6 Dermatology Branch, National Institute of Arthritis and Musculoskeletal and Skin Diseases, National Institutes of Health, Bethesda, MD 20892, USA
+
+
++Contributed equally
+
+---
+***
+
+Generate Figure 3
+Generate supplementary figures 6-14
+
+First let's load needed R packages.
+```{r, echo=FALSE}
+#set global knitting options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE, fig.width = 12, fig.height = 7)
+```
+
+
+
+```{r, echo=FALSE}
+# load package method from from Dan Sprokett
+
+# set seed
+set.seed(78979)
+#define packages
+packages <- c("knitr", 
+              "vcfR", 
+              "ANCOMBC",
+              "ggplot2", 
+              "tidyverse", 
+              "colorspace", 
+              "kableExtra", 
+              "gridExtra", 
+              "scales",
+              "refGenome",
+              "RColorBrewer",
+              "ape",
+              "ggtree",
+              "ape",
+              "Biostrings",
+              "vcfR",
+              "adegenet",
+              "poppr",
+              "pegas",
+              "dendextend",
+              "cowplot",
+              "ggpubr",
+              "ComplexHeatmap",
+              "phyloseq",
+              "reshape2",
+              "phangorn",
+              "phytools",
+              "ggtree",
+              "confintr", 
+              "igraph",
+              "ggnet",
+              "ggnetwork")
+
+# install packages from bioconductor
+BiocManager::install(setdiff(packages,installed.packages()), update=FALSE)
+n <- length(packages) - sum(sapply(packages,require,character.only=TRUE))
+
+# print if packages loaded properly
+if(n == 0){
+  print("All necessary R packages loaded properly")
+} else {
+  print(paste0(n, " R packages did not load properly"))
+}
+```
+
+define some color palettes
+```{r}
+
+modified_colours=c("Candida auris"= "#BC80BD",
+      "Malassezia spp."= "#BEBADA" ,
+      "Malassezia slooffiae"="violet", 
+      "P. aeruginosa"="#C51B7D",
+      "P. mirabilis"="#E9A3C9",
+      "P. stuartii"=  "#FDE0EF"  ,
+      "E. coli"="#E6F5D0"   ,
+      "E. faecalis"="#E6F5D0"  ,
+      "A. baumannii"="#A1D76A" ,
+      "M. morganii"="#8B8000" ,
+      "K. pneumoniae" = "#4D9221", 
+      "S. aureus" = "#329D9C" ,
+      "s__Corynebacterium striatum"  ="#56C596",
+      "s__Corynebacterium aurimucosum_E"="#7BE495" ,
+      "s__Staphylococcus pettenkoferi" = "gray",
+      "Other"="#85C1E9" ) 
+
+
+mycolors=c("Candida auris"= "#8B008B",
+      "Malassezia spp."= "#BEBADA" ,
+      "Malassezia slooffiae"="#BC80BD", 
+      "Pseudomonas aeruginosa"="#C51B7D",
+      "Proteus mirabilis"="#FB8072",
+      "Providencia stuartii"=  "#FDB462"  ,
+      "Escherichia coli"="#737000"   ,
+      "Enterococcus faecalis"="#E6F5D0"  ,
+      "Acinetobacter baumannii"="#A1D76A" ,
+      "Morganella morganii"="#32612D" ,
+      "Klebsiella pneumoniae" = "#0D52BD", 
+      "Staphylococcus aureus" = "#329D9C" ,
+      "Staphylococcus pettenkoferi" = "gray")
+
+mycolors1=c("C. auris"= "#8B008B",
+      "M. spp."= "#BEBADA" ,
+      "M. slooffiae"="#BC80BD", 
+      "P. aeruginosa"="#C51B7D",
+      "P. mirabilis"="#FB8072",
+      "P. stuartii"=  "#FDB462"  ,
+      "E. coli"="#737000"   ,
+      "E. faecalis"="#E6F5D0"  ,
+      "A. baumannii"="#A1D76A" ,
+      "M. morganii"="#32612D" ,
+      "K. pneumoniae" = "#0D52BD", 
+      "S. aureus" = "#329D9C" ,
+      "S. pettenkoferi" = "gray")
+
+
+mypal =c("#5A5156","#16FF32","#1C7F93","#1C8356","#1CBE4F",
+"#90AD1C","#1CFFCE","#2ED9FF","#325A9B","#3283FE","#3B00FB",
+"#66B0FF","#683B79","#782AB6","#7ED7D1","#822E1C","#85660D",
+"#AA0DFE","#AAF400","#B00068","#B10DA1","#B5EFB5","#BDCDFF",
+"#C075A6","#C4451C","#D85FF7","#DEA0FD","#E4E1E3","#F6222E",
+"#F7E1A0","#F8A19F","#FA0087","#FBE426","#FC1CBF","#FE00FA", 
+"#FEAF16", "firebrick", "darkgreen", "yellow", "orange", "black")
+
+```
+
+### get the MAGs for the select species
+```{r}
+taxa_of_interest = c("Candida auris" ,
+      "s__Escherichia coli",
+      "s__Enterococcus faecalis",
+     "s__Klebsiella pneumoniae" ,
+     "s__Acinetobacter baumannii",
+      "s__Pseudomonas aeruginosa",
+      "s__Pseudomonas aeruginosa_A",
+      "s__Proteus mirabilis",
+      "s__Providencia stuartii",
+      "s__Staphylococcus pettenkoferi",
+     "s__Staphylococcus aureus")
+
+```
+
+
+
+### Panel 3A: Let's plot ANI networks, drawing an edge between nodes only if ANI > 99.95
+a) Network analysis of pairwise ANI for each species. Each node (large dot) represents a MAG. Edges or lines between nodes are represented if pairwise ANI reaches or exceeds 99.95%. Colors correspond to distinct subjects. For E. coli, S. pettenkoferi, and C. auris unconnected nodes represent cases where one of two pairwise calculations had ANI less than 99.9%. 
+we'll look at ANI for all MAGs within a species. MAGs were dereplicated on a per-subject basis so only one MAG per subject is included in each network.
+```{r}
+path <- "~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/21_subjectANI" 
+
+aniOut <- sort(list.files(path, pattern="*txt", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+species.names <- sapply(strsplit(basename(aniOut), "/"), `[`, 1)
+   # Load the dplyr package
+        library(dplyr)
+
+#read in the files and store them in a list
+holder <- vector("list", length(species.names))
+
+  for(i in 1:length(species.names)) {
+        df  = data.table::fread(aniOut[i])
+        df = data.frame(df)
+        df$run = species.names[i]
+        holder[[i]] =  data.frame(df)
+}
+
+foo = do.call(rbind, holder)
+
+#read in a file that species which species is referenced in each ani plot
+run2species = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/run2species.csv")
+
+#let's collapse all the ANI readings
+myani = merge(foo, run2species)
+myani$run = NULL
+myspecies = unique(myani$species)
+#write.csv(myspecies, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/commensals.csv")
+
+#now let's add the sample information
+myani$Sample1 = stringr::str_sub(myani$V1, 1, 7)
+myani$Sample2 = stringr::str_sub(myani$V2, 1, 7)
+
+#we need to remove the same MAG comparisons
+myani = subset(myani, Sample1 != Sample2)
+myani = subset(myani, V1 != V2)
+
+#annotate with sample information
+map =read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv")
+
+#merge the IMP file with the metadata so we know what samples we're comparing
+#we annotate sample 1 first
+ map1 = map %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+        map1$Sample1 = map1$library_id
+        colnames(map1) = c("library1", "Unique_ptid1", "site1", "survey1", "Sample1")
+        myani2 = merge(map1, myani)
+ map2 = map %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+        map2$Sample2 = map2$library_id
+        colnames(map2) = c("library2", "Unique_ptid2", "site2", "survey2", "Sample2")
+        myani3 = merge(myani2, map2)
+   
+#define a function to plot the networks
+plot_ani_network  <- function(IMP, species) {
+    #convert the table intro a matrix
+    matrix <- data.frame(acast(IMP, V1~V2, value.var="V3"))
+    #replace NA  with 0
+    matrix[is.na(matrix)] <- 0
+    #replace any value < 99.95 with 0
+    matrix[matrix < 99.95] <- 0
+    #replace any value >= 99.95 with 1
+    matrix[matrix >= 99.95] <- 1 
+
+    #graph the network
+    network <- graph_from_biadjacency_matrix(matrix)
+
+    #let's get the subject information merged into the network info
+      df = ggnetwork(network) #nicer layout: layout=igraph::layout_as_tree(network)
+    df$library_id = stringr::str_sub(df$name, 1, 7)
+    map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv") %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+    foo = merge(df, map) 
+
+    #define a color vector and plot
+    cols <- c(brewer.pal(12,"Set3"), "black", "red")
+
+    AB_Network = ggplot(foo, aes(x = x, y = y, xend = xend, yend = yend)) +
+    geom_edges(aes(linetype = type), color = "grey50") +
+    geom_nodes(aes(color = as.factor(Unique_ptid)), size=1) +
+    scale_color_manual(values=mypal) +
+    theme_blank() +
+      ggtitle(paste0("    ", species))+
+  theme(legend.position="none") +
+  theme(plot.title=element_text(face="italic", size=10))
+    return(AB_Network)
+}
+
+
+
+#plot the networks
+sp1 = subset(myani, species==myspecies[1])  %>%
+  plot_ani_network(., species=myspecies[1]) #C. amycolatum
+sp2 = subset(myani, species==myspecies[2]) %>%
+  plot_ani_network(., species=myspecies[2]) #P. distasonis
+sp3 = subset(myani, species==myspecies[3]) %>%
+  plot_ani_network(., species=myspecies[3])#Klebsiella pneumoniae
+sp4 = subset(myani, species==myspecies[4]) %>%
+  plot_ani_network(., species=myspecies[4]) #Ruthenibacterium lactatiformans
+sp5 = subset(myani, species==myspecies[5]) %>%
+  plot_ani_network(., species=myspecies[5]) #Veillonella_A seminalis
+sp6 = subset(myani, species==myspecies[6]) %>%
+  plot_ani_network(., species=myspecies[6]) #"Corynebacterium striatum"
+sp7 = subset(myani, species==myspecies[7])  %>%
+  plot_ani_network(., species=myspecies[7]) #Acinetobacter baumannii
+sp8 = subset(myani, species==myspecies[8])  %>%
+  plot_ani_network(., species=myspecies[8]) # "Corynebacterium accolens"
+sp9 = subset(myani, species==myspecies[9])  %>%
+  plot_ani_network(., species=myspecies[9]) #"Cutibacterium acnes"
+sp10 = subset(myani, species==myspecies[10]) %>%
+  plot_ani_network(., species=myspecies[10]) #Alistipes onderdonkii
+sp11 = subset(myani, species==myspecies[11]) %>%
+  plot_ani_network(., species=myspecies[11]) #Corynebacterium aurimucosum_E"
+sp12 = subset(myani, species==myspecies[12]) %>%
+  plot_ani_network(., species=myspecies[12]) #Bifidobacterium breve
+sp13 = subset(myani, species==myspecies[13]) %>%
+  plot_ani_network(., species=myspecies[13]) #Fimisoma sp000435715
+sp14 = subset(myani, species==myspecies[14]) %>%
+  plot_ani_network(., species=myspecies[14]) #Bacteroides fragilis
+sp15 = subset(myani, species==myspecies[15]) %>%
+  plot_ani_network(., species=myspecies[15]) #Gleimia hominis
+sp16 = subset(myani, species==myspecies[16]) %>%
+  plot_ani_network(., species=myspecies[16]) #Ruminococcus_B gnavus
+sp17 = subset(myani, species==myspecies[17]) %>%
+  plot_ani_network(., species=myspecies[17]) #Acidaminococcus intestini
+sp18 = subset(myani, species==myspecies[18]) %>%
+  plot_ani_network(., species=myspecies[18]) #Corynebacterium massiliense
+sp19 = subset(myani, species==myspecies[19]) %>%
+  plot_ani_network(., species=myspecies[19]) #Brevibacterium ravenspurgense
+sp20 = subset(myani, species==myspecies[20]) %>%
+  plot_ani_network(., species=myspecies[20]) #Staphylococcus simulans
+sp21 = subset(myani, species==myspecies[21]) %>%
+  plot_ani_network(., species=myspecies[21]) #Corynebacterium sp900539985
+sp22 = subset(myani, species==myspecies[22]) %>%
+  plot_ani_network(., species=myspecies[22]) #Mediterraneibacter torques
+sp23 = subset(myani, species==myspecies[23]) %>%
+  plot_ani_network(., species=myspecies[23]) #UBA1417 sp900549945
+sp24 = subset(myani, species==myspecies[24]) %>%
+  plot_ani_network(., species=myspecies[24]) #Bacteroides uniformis
+sp25 = subset(myani, species==myspecies[25]) %>%
+  plot_ani_network(., species=myspecies[25]) #Candida auris
+sp26 = subset(myani, species==myspecies[26]) %>%
+  plot_ani_network(., species=myspecies[26]) #Candida orthopsilosis AY2
+sp27 = subset(myani, species==myspecies[27]) %>%
+  plot_ani_network(., species=myspecies[27]) #Candida parapsilosis
+sp28 = subset(myani, species==myspecies[28]) %>%
+  plot_ani_network(., species=myspecies[28]) #Escherichia coli
+sp29 = subset(myani, species==myspecies[29]) %>%
+  plot_ani_network(., species=myspecies[29]) #Staphylococcus epidermidis
+sp30 = subset(myani, species==myspecies[30]) %>%
+  plot_ani_network(., species=myspecies[30]) #Morganella morganii
+sp31 = subset(myani, species==myspecies[31]) %>%
+  plot_ani_network(., species=myspecies[31]) #Proteus mirabilis
+sp32 = subset(myani, species==myspecies[32]) %>%
+  plot_ani_network(., species=myspecies[32]) #Providencia stuartii
+sp33 = subset(myani, species==myspecies[33]) %>%
+  plot_ani_network(., species=myspecies[33]) #Pseudomonas aeruginosa
+sp34 = subset(myani, species==myspecies[34]) %>%
+  plot_ani_network(., species=myspecies[34])#Staphylococcus pettenkoferi
+
+#grid.arrange(sp1, sp2, sp3, sp4, sp5, sp6, sp7, sp8, sp9, sp10, sp11, sp12)
+#grid.arrange(sp13, sp14, sp15, sp16, sp17, sp18, sp19, sp20, sp21, sp22, sp23, sp24)
+#grid.arrange(sp25, sp34, sp27, sp28, sp29, sp30, sp31, sp32, sp33, sp34)
+
+#let's write myani to a file that can be shared
+
+Fig3A = plot_grid(sp28,sp34, sp3, sp7, sp33, sp30, sp31, sp32, sp25, ncol=1)
+#write.csv(ani, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/ani_data.csv")
+
+
+```
+
+
+
+
+calculate the average ANI for each species, including the 95% confidence intervals
+```{r}
+get_ANI_CI <- function(df, species) {
+  my_ac = ci_mean(df$V3,
+      probs = c(0.025, 0.975),
+      type =  "bootstrap",
+      boot_type = "basic",
+      R = 9999,
+      seed = 834)
+  df = data.frame(CI_lower=my_ac$interval[1], CI_upper=my_ac$interval[2], average=my_ac$estimate, 
+                  species=paste0(species))
+}
+
+ca_CI = get_ANI_CI(df=subset(myani, species=="Candida auris"), species="Candida")
+ac_CI = get_ANI_CI(df=subset(myani, species=="Acinetobacter baumannii"), species="Acinetobacter")
+ec_CI = get_ANI_CI(df=subset(myani, species=="Escherichia coli" ), species="Escherichia")
+kp_CI = get_ANI_CI(df=subset(myani, species=="Klebsiella pneumoniae" ), species="Klebsiella")
+mm_CI = get_ANI_CI(df=subset(myani, species=="Morganella morganii"), species="Morganella")
+pa_CI = get_ANI_CI(df=subset(myani, species=="Pseudomonas aeruginosa" ), species="Pseudomonas")
+sp_CI = get_ANI_CI(df=subset(myani, species=="Staphylococcus pettenkoferi"), species="Pettenkoferi")
+pm_CI = get_ANI_CI(df=subset(myani, species=="Proteus mirabilis"  ), species="Proteus")
+ps_CI = get_ANI_CI(df=subset(myani, species=="Providencia stuartii"), species="Providencia")
+
+
+ANI_Table = data.frame(rbind(ca_CI,
+                             ac_CI,
+                             ec_CI,
+                             kp_CI,
+                             mm_CI,
+                             pa_CI, 
+                             sp_CI,
+                             pm_CI,
+                             ps_CI))
+
+kable(ANI_Table)
+ANI_Table$CI_lower = round(ANI_Table$CI_lower, 2)
+ANI_Table$CI_upper = round(ANI_Table$CI_upper, 2)
+ANI_Table$average = round(ANI_Table$average, 2)
+#write.csv(ANI_Table, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable7.csv")
+```
+
+let's figure out 
+1. how many clusters there are 
+2. number of residents in the largest cluster
+3. number of MAGs included in the analysis
+
+```{r}
+#define a function to plot the networks
+label_subjects  <- function(IMP, species) {
+    #convert the table intro a matrix
+    matrix <- data.frame(acast(IMP, V1~V2, value.var="V3"))
+    #replace NA  with 0
+    matrix[is.na(matrix)] <- 0
+    #replace any value < 99.95 with 0
+    matrix[matrix < 99.95] <- 0
+    #replace any value >= 99.95 with 1
+    matrix[matrix >= 99.95] <- 1 
+
+    #graph the network
+    network <- graph_from_biadjacency_matrix(matrix)
+
+    #let's get the subject information merged into the network info
+      df = ggnetwork(network) #, layout=igraph::layout_as_tree(network)
+    df$library_id = stringr::str_sub(df$name, 1, 7)
+    map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv") %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+    foo = merge(df, map) 
+
+    #define a color vector and plot
+    cols <- c(brewer.pal(12,"Set3"), "black", "red")
+
+    AB_Network = ggplot(foo, aes(x = x, y = y, xend = xend, yend = yend)) +
+    geom_edges(aes(linetype = type), color = "grey50") +
+    geom_nodes(aes(color = as.factor(Unique_ptid)), size=1) +
+      geom_nodelabel(aes(label=Unique_ptid))+
+    scale_color_manual(values=mypal) +
+    theme_blank() +
+      ggtitle(paste0(species))+
+  theme(legend.position="none") 
+    return(AB_Network)
+}
+
+#E.coli
+sp28 = subset(myani, species==myspecies[28]) %>%
+  label_subjects(., species=myspecies[28]) 
+dat = sp28$data 
+sp28N = length(unique(dat$Unique_ptid)) #21
+
+#"Staphylococcus pettenkoferi"
+sp34 = subset(myani, species==myspecies[34]) %>%
+  label_subjects(., species=myspecies[34]) 
+dat = sp34$data 
+sp34N = length(unique(dat$Unique_ptid)) #37
+
+sp3 = subset(myani, species==myspecies[3]) %>%
+  label_subjects(., species=myspecies[3]) 
+dat = sp3$data 
+sp3N = length(unique(dat$Unique_ptid)) #26
+
+
+sp7 = subset(myani, species==myspecies[7]) %>%
+  label_subjects(., species=myspecies[7]) 
+dat = sp7$data 
+sp7N = length(unique(dat$Unique_ptid)) #17
+
+
+sp33 = subset(myani, species==myspecies[33]) %>%
+  label_subjects(., species=myspecies[33]) 
+dat = sp33$data 
+sp33N = length(unique(dat$Unique_ptid)) #27
+
+
+sp30 = subset(myani, species==myspecies[30]) %>%
+  label_subjects(., species=myspecies[30]) 
+dat = sp30$data 
+sp30N = length(unique(dat$Unique_ptid)) #24
+
+
+sp31 = subset(myani, species==myspecies[31]) %>%
+  label_subjects(., species=myspecies[31]) 
+dat = sp31$data 
+sp31N = length(unique(dat$Unique_ptid)) #34
+
+
+sp32 = subset(myani, species==myspecies[32]) %>%
+  label_subjects(., species=myspecies[32]) 
+dat = sp32$data 
+sp32N = length(unique(dat$Unique_ptid)) #33
+
+
+sp25 = subset(myani, species==myspecies[25]) %>%
+  label_subjects(., species=myspecies[25]) 
+dat = sp25$data 
+sp25N = length(unique(dat$Unique_ptid))#8
+
+```
+
+
+### Plot Figure 3B
+B) phylogenetic tree based on amino acid alignment of 172 translated single-copy marker genes for 54 K. pneumoniae MAGs integrated with 5 publicly available K. pneumoniae genomes.
+
+```{r, fig.height=9, fig.width=8}
+tre = read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/gtree_out_ST_klebsiella_nospades_st_limited.tre") 
+
+#drop tips that are excessively long
+drop.me = c("ST-_Sub53_Ea_2", "ST-_Sub13_Ic_1")
+
+treX = drop.tip(tre, drop.me)%>%
+  phytools::midpoint.root(.)
+
+#first we plot the tree
+Fig3B= ggtree(treX)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=8)
+Fig3B
+```
+
+
+
+
+
+
+
+### Supplementary Figure 6: let's plot the tree for acinetobacter
+Supplementary Figure 6: Single copy marker gene tree of Acinetobacter baumannii. Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 80 publicly available genomes with 30 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 141 translated single copy marker genes. MAGs from this study are labeled in the format of ST_subject_N_Site_N_Survey_N. Tree is rooted at the midpoint.
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/acineto_gtree_out_derep_st.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=7)
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure6_Acineto_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+### Supplementary Figure 7: plot the tree for ecoli
+Supplementary Figure 7: Single copy marker gene tree of Escherichia coli. Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 48 publicly available genomes with 35 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 172 translated single copy marker genes. MAGs from this study are labeled in the format of ST_subject_N_Site_N_Survey_N. Tree is rooted at the midpoint.
+
+```{r, fig.height=25}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/ecoli_gtree_out_stonly_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre) %>%
+  drop.tip(., c("GCF_001650295.1_ASM165029v1_genomic.chrom", "GCF_000010485.1_ASM1048v1_genomic.chrom"))
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2() + geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure7_Ecoli_ggtree.png", device="png", height = 15, width = 8.5)
+```
+
+
+
+
+
+### Supplementary Figure 8: plot the tree for morganella
+Supplementary Figure 8: Single copy marker gene tree of Morganella morganii. Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 25 publicly available genomes with 50 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 146 translated single copy marker genes. MAGs from this study are labeled in the format of subject_N_Site_N_Survey_N. Tree is rooted at the midpoint. One MAG was dropped from the tree for having too few single copy marker genes.  
+
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/morganella_gtree_out_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure8_Morganella_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+
+### Supplementary Figure 9: plot the tree for pettenkoferi
+Supplementary Figure 9: Single copy marker gene tree of Staphylococcus pettenkoferi. Complete genomes (N=25) available in NCBI on August 15, 2022 were integrated with 87 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 67 translated single copy marker genes. MAGs from this study are labeled in the format of subject_N_Site_N_Survey_N. Tree is rooted at the midpoint. One MAG was removed for only having too few single copy marker genes while one MAG was removed for having high redundancy.
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/pettenkoferi_gtree_out_derep2.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=7)
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure9_Pettenkoferi_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+### supplementary figure 10: tree for proteus
+Supplementary Figure 10: Single copy marker gene tree of Proteus mirabilis. 
+Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 7 publicly available genomes with 110 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 149 translated single copy marker genes. MAGs from this study are labeled in the format of subject_N_Site_N_Survey_N. Tree is rooted at the midpoint. One MAG was removed for only having too few single copy marker genes while one MAG was removed for having high redundancy.
+
+
+```{r, fig.height=16, fig.width=12}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/proteus_gtree_out_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=7)
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure10_Proteus_ggtree.png", device="png", height = 13, width = 8.5)
+```
+
+
+### supplementary Figure 11: tree for providencia
+
+Supplementary Figure 11: Single copy marker gene tree of Providencia stuartii. Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 2 publicly available genomes with 116 MAGs from the v-SNF we sampled in Chicago, IL. Tree was built with GToTree using 133 translated single copy marker genes. MAGs from this study are labeled in the format of subject_N_Site_N_Survey_N. Tree is rooted at the midpoint. One MAG was removed for only having too few single copy marker genes while one MAG was removed for having high redundancy.
+```{r, fig.height=16, fig.width=12}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/stuartii_gtree_out_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+p1 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black', size=7)
+p1
+ggsave(p1, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure11_Providencia_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+### supplementary figure 12: tree for pseudomonas
+Supplementary Figure 12: Single copy marker gene tree of Pseudomonas aeruginosa. Complete genomes available in NCBI on May 6, 2024 were dereplicated to reduce the size of the tree, resulting in the integration of 15 publicly available genomes with 70 MAGs from the v-SNF we sampled in Chicago, IL. Additionally, complete isolate genomes representing sequence types identified in our assembled MAGs were added for ST245, ST253, ST277, ST298, ST697. No complete isolate genomes for ST447, ST709, ST1816 or ST3775 were identified in NCBI on May 6, 2024. Tree was built with GToTree using 172 translated single copy marker genes. MAGs from this study are labeled in the format of ST_subject_N_Site_N_Survey_N. Tree is rooted at the midpoint. One MAG was dropped due to have only 84 single copy marker genes.
+```{r}
+#let's read in the single copy marker gene tree generated using GoToTree
+tre = ape::read.tree("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/20_goToTree/pseudomonas_gtree_out_derep.tre")
+#let's root this tree at the midpoint
+tre2 = phytools::midpoint.root(tre)
+
+#let's plot the tree, making sure to label to tips 
+tre3 = ggtree(tre2)+ theme_tree2()+ geom_tiplab(as_ylab=TRUE, color='black')
+tre3
+ggsave(tre3, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure12_Pseudomonas_ggtree.png", device="png", height = 11, width = 8.5)
+```
+
+
+
+
+
+
+
+
+
+### Fig3C: Plot SNP histograms where SNPs were called with inStrain
+Histograms displaying the number of sample pairs (y-axis) that differ by the number of SNPs (x-axis) for each species where sharing between 3 individuals was identified, as determined by inStrain, a read-based approach developed for metagenomes. The red line demarcates 30 SNPs.
+```{r}
+#read in the inStrain results from allsamples.IS.COMPARE_genomeWide_compare.csv
+instrain = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable9_instrain.csv")
+
+#read in the sample map and modify so we can join with instrain results
+map = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv") %>%
+  dplyr::select(., c("library_id", "Sample"))
+map1 = map
+colnames(map1) = c("sample1", "Sample1_Meta")
+map2 = map
+colnames(map2) = c("sample2", "Sample2_Meta")
+
+#join instrain and sample mapping information both pairs of samples being compared
+mydf = plyr::join(instrain, map1) %>%
+  plyr::join(., map2)
+
+
+#now integrate the taxa information
+gtdbk = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable3_all_annotated_passonly_nodups_assembler.csv") %>%
+  dplyr::select(., c("user_genome", "genus", "species", "is.failure")) %>%
+  subset(., is.failure != "yes")
+gtdbk$is.failure=NULL
+dat = merge(mydf, gtdbk)
+map1 = colsplit(dat$Sample1_Meta, ";", c("Subject1", "Site1", "Survey1"))
+map2 = colsplit(dat$Sample2_Meta, ";", c("Subject2", "Site2", "Survey2"))
+dat = data.frame(dat, map1, map2)                
+
+
+#now let's subset on inter-individual variation and drop comparisons of < 50% of genome compared
+dat2 = subset(dat, Subject1 != Subject2) %>%
+  subset(., percent_compared > 0.5)%>%
+  subset(., Site1 != "Site_Bu/To") %>%
+  subset(., Site2 != "Site_Bu/To")
+
+
+
+#Let's define some functions for summarizing the inStrain data
+#we want to calculate the mode of the SNP distribution
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+#we want to get summary statistics 
+get_data_summary <- function(df){
+  sumstatz <- data.frame(summary_statistic = c("median",
+                                       "mean",
+                                     "sd upr", 
+                                     "sd lwr",
+                                     "mode"),
+                       value     = c(median(df$population_SNPs),
+                                     mean(df$population_SNPs),
+                                     mean(df$population_SNPs)+sd(df$population_SNPs),
+                                     mean(df$population_SNPs)-sd(df$population_SNPs),
+                                     getmode(df$population_SNPs)))
+  return(sumstatz)
+}
+
+plot_histogram <- function(df, species)
+{
+    ggplot(data=df, aes(population_SNPs)) + 
+    geom_histogram(col="black") + 
+    geom_vline(xintercept = 30, color="red", linetype="dashed", size=1) +
+    labs(title=paste0(species), x='', y='') +    theme_bw()+
+    theme(plot.title = element_text(face = "italic"))  
+}
+```
+
+
+klebsiella pneumoniae
+
+- the most frequent number of SNPs separating pairs is 5!
+```{r}
+kp = subset(dat2, species =="s__Klebsiella pneumoniae")
+sumstatz = get_data_summary(kp)
+p= plot_histogram(df=kp, species="Klebsiella pneumoniae")
+shared_subs = unique(c(kp$Subject1, kp$Subject2)) #27 subjects
+```
+
+### Let's look at SNPs for ST147
+
+"147" "268" "327" "14"  "307"
+```{r}
+kpeST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv") %>%
+  subset(., ST==147)
+
+
+#first, what subjects had positive ST147 MAGs
+sort(unique(kpeST$Unique_ptid))
+
+#how many subjects had positive ST147
+length(unique(kpeST$Unique_ptid))
+
+#define a vector of ST147 sample IDs and subset on those samples to see # SNPs separating them
+ST147mysamples = unique(kpeST$library_id)
+st147 = subset(dat2, sample1 %in% ST147mysamples & sample2 %in% ST147mysamples) %>%
+  subset(., species =="s__Klebsiella pneumoniae")
+
+
+#get summary stats
+sumstatz = get_data_summary(st147)
+Fig3_C1 = plot_histogram(df=st147,  species="Klebsiella pneumoniae ST147")
+n.pairs=nrow(st147)
+
+#how many subjects share ST147 with < 30 SNPs
+st147_low = subset(st147, population_SNPs <30)
+shared_subs = unique(c(st147_low$Subject1, st147_low$Subject2)) #10 subjects
+length(shared_subs)
+
+```
+
+### Let's look at ST14
+```{r}
+###Let's look at ST14 Klebsiella
+kpeST =read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv")  %>%
+  subset(., ST==14)
+ST14mysamples = unique(kpeST$library_id)
+st14 = subset(dat2, sample1 %in% ST14mysamples & sample2 %in% ST14mysamples) %>%
+  subset(., species =="s__Klebsiella pneumoniae")
+kp_subjects = unique(c(st14$Subject1, st14$Subject2)) #2 subjects
+
+```
+
+#### Let's look at SNPs for ST307 klebsiella
+```{r}
+kpeST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv") %>%
+  subset(., ST==307) %>%
+  subset(., site_specific != "Bu/To")
+ST307mysamples = unique(kpeST$library_id)
+st307 = subset(dat2, sample1 %in% ST307mysamples & sample2 %in% ST307mysamples) %>%
+  subset(., species =="s__Klebsiella pneumoniae")
+
+sumstatz = get_data_summary(st307)
+summary(st307$percent_compared)
+p = plot_histogram(df=st307, species="Klebsiella pneumoniae ST307")
+kp_subjects = unique(c(st307$Subject1, st307$Subject2)) #3
+
+
+
+```
+
+#### E.coli
+```{r}
+ec = subset(dat2, species =="s__Escherichia coli")
+sumstatz = get_data_summary(ec)
+p = plot_histogram(df=ec, species="Escherichia coli")
+
+
+#####Let's look at SNPs for ST131
+ecST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv")  %>%
+  subset(., ST==131)
+ST131mysamples = unique(ecST$library_id) #19 samples
+
+st131 = subset(dat2, sample1 %in% ST131mysamples & sample2 %in% ST131mysamples) %>%
+  subset(., species =="s__Escherichia coli")
+n.pairs = nrow(st131)
+sumstatz = get_data_summary(st131)
+summary(st131$percent_compared)
+p = plot_histogram(df=st131,  species="E.coli ST131")
+ec_subjects = subset(st131, population_SNPs < 30)
+ec_subjects = unique(c(ec_subjects$Subject1, ec_subjects$Subject2)) #9 subjects
+
+notclonal = subset(st131, !(Subject1 %in% ec_subjects)) %>%
+  subset(., !(Subject2 %in% ec_subjects))
+
+
+```
+
+
+Pseudomonas aeruginosa
+"235"  "253"  "277"  "298"  "447"  "612"  "697"  "709"  "1816" "3775" 
+
+Shared: ST235, ST612, ST697, ST816, ST3775
+```{r}
+#### Pseudomonas aeruginosa
+pa = subset(dat2, species=="s__Pseudomonas aeruginosa")
+sumstatz = get_data_summary(pa)
+p = plot_histogram(df=pa, species="Pseudomonas aeruginosa")
+
+
+#####define the STs present for p aeruginosa
+paST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv")  %>%
+  subset(., species=="Pseudomonas aeruginosa")
+mysts = unique(paST$ST)
+
+#subset on ST235; 2 subjects 2, 12
+ST235 = subset(paST, ST=="235") 
+ST235_samples = unique(ST235$library_id)
+st235 = subset(dat2, sample1 %in% ST235_samples & sample2 %in% ST235_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+st235_subjects = unique(c(st235$Subject1, st235$Subject2))
+
+
+#ST3775 - 4 people ("Subject_28" "Subject_34" "Subject_3"  "Subject_16")
+myST = subset(paST, ST==3775)
+myST_samples = unique(myST$library_id)
+ST3775 = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+sumstatz = get_data_summary(ST3775)
+p = plot_histogram(df=ST3775,  species=paste0("Pseudomonas aeruginosa ST", mysts[10]))
+mysubjects = unique(c(ST3775$Subject1, ST3775$Subject2))
+
+
+#ST1816 - 2 people (46, 33)
+myST = subset(paST, ST==1816)
+myST_samples = unique(myST$library_id)
+ST1816  = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+sumstatz = get_data_summary(ST1816)
+p = plot_histogram(df=ST1816, species=paste0("Pseudomonas aeruginosa ST", mysts[9]))
+
+
+
+#ST447; 5, 25, 49
+myST = subset(paST, ST==447)
+myST_samples = unique(myST$library_id)
+ST447 = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+sumstatz = get_data_summary(ST447)
+
+
+#ST253 - just on one subject; 2 samples
+myST = subset(paST, ST==253)
+myST_samples = unique(myST$library_id)
+
+
+#ST277 - 1 subject; subject 4
+myST = subset(paST, ST==277)
+myST_samples = unique(myST$library_id)
+
+#ST298 - just one subject; 5 samples; subject 54
+myST = subset(paST, ST==298)
+myST_samples = unique(myST$library_id)
+
+#ST612 - 2 subjects (2, 28) matched to the P. aeruginosa MAG that could not be sequence typed, so drop it
+myST = subset(paST, ST==612)
+myST_samples = unique(myST$library_id)
+ST612 = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+
+
+#ST697 - shared among 2 people (38, 40)
+myST = subset(paST, ST==697)
+myST_samples = unique(myST$library_id)
+ST697 = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Pseudomonas aeruginosa")
+
+
+#ST709 - just one sample
+myST = subset(paST, ST==709)
+myST_samples = unique(myST$library_id)
+
+```
+
+
+#### Acinetobacter baumanii - 5 STs
+ "2"    "25"   "298"  "406"  "1142"
+```{r}
+#### Acinetobacter baumannii
+ac = subset(dat2, species=="s__Acinetobacter baumannii")
+sumstatz = get_data_summary(ac)
+p = plot_histogram(df=ac, species="Acinetobacter baumannii")
+
+
+#####
+paST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv") %>%
+  subset(., species=="Acinetobacter baumannii")
+mysts = unique(paST$ST)
+
+
+###ST1142 -4 subjects "Subject_28" "Subject_33" "Subject_11" "Subject_49"
+myST = subset(paST, ST==1142)
+myST_samples = unique(myST$library_id)
+ST1142 = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Acinetobacter baumannii")
+lowst1142 = subset(ST1142, population_SNPs < 30)
+sumstatz = get_data_summary(ST1142)
+p = plot_histogram(df=ST1142, species=paste0("Acinetobacter baumannii ST", mysts[5]))
+
+
+###ST25 - 2 subjects (2, 54, 28) but high numbers of SNPs except 1 pair
+myST = subset(paST, ST==25)
+myST_samples = unique(myST$library_id)
+myST_df  = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Acinetobacter baumannii") %>%
+  subset(., population_SNPs < 30)
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species="Acinetobacter baumannii")
+
+ST25  = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Acinetobacter baumannii") 
+
+#ST2 - 2 samples; 1 person; subject 57
+myST = subset(paST, ST==2)
+
+
+###ST298 -1 sample
+myST = subset(paST, ST==298)
+myST_samples = unique(myST$library_id)
+
+
+###ST406 1 sample
+myST = subset(paST, ST==406)
+myST_samples = unique(myST$library_id)
+
+```
+
+staph pettenkoferi and uropathogens
+```{r}
+
+#### proteus; 
+proteus = subset(dat2, species=="s__Proteus mirabilis")
+soFig3C_I_Main = plot_histogram(df=proteus,  species="Proteus mirabilis")
+proteus_low = subset(proteus, population_SNPs < 30)
+sumstatz = get_data_summary(proteus_low)
+
+proteus_subs = sort(unique(c(proteus_low$Subject1, proteus_low$Subject2)))
+proteusDF = data.frame(proteus=proteus_subs)
+proteusDF$proteus = stringr::str_remove_all(proteusDF$proteus, "Subject_")
+length(proteusDF$proteus)
+
+#### providencia; 
+providencia = subset(dat2, species=="s__Providencia stuartii")
+sumstatz = get_data_summary(providencia)
+Fig3C_J_Main = plot_histogram(df=ac, species="Providencia stuartii")
+low = subset(providencia, population_SNPs < 30)
+subs = sort(unique(c(low$Subject1, low$Subject2)))
+sumstatz = get_data_summary(low)
+
+providencia2 = data.frame(providencia=subs)
+providencia2$providencia = stringr::str_remove_all(providencia2$providencia, "Subject_")
+length(providencia2$providencia)
+
+
+
+#### Morganella; 
+morganella = subset(dat2, species == "s__Morganella morganii")
+sumstatz = get_data_summary(morganella)
+Fig3C_K_Main = plot_histogram(df=morganella, species="Morganella morganii")
+morganella_low = subset(morganella, population_SNPs < 30)
+summary(morganella_low$population_SNPs)
+morganellaDF = data.frame(morganella=unique(c(morganella_low$Subject1, morganella_low$Subject2)))
+morganellaDF$morganella = stringr::str_remove_all(morganellaDF$morganella, "Subject_")
+length(morganellaDF$morganella )
+summary(morganella_low$percent_compared)
+
+#which subjects are also carrying clonal proteus
+proteusDF_shared = subset(proteusDF, proteus %in% providencia2$providencia)
+providencia_shared = subset(providencia2, providencia %in% proteusDF_shared$proteus)
+proteusDF_not_shared = subset(proteusDF, !(proteus %in% providencia2$providencia))
+providencia_not_shared  = subset(providencia2, !(providencia %in% proteusDF$proteus))
+morganella_shared = subset(morganellaDF, morganella %in% proteusDF_shared$proteus)
+morganella_shared = subset(morganellaDF, morganella %in% providencia_shared$providencia)
+
+
+```
+
+staph pettenkoferi
+```{r}
+#### Staph pettenkoferi; only 1 mag in catalog
+ac = subset(dat2, species=="s__Staphylococcus pettenkoferi")
+sumstatz = get_data_summary(ac)
+Fig3C_H_Main = plot_histogram(df=ac,  species="Staphylococcus pettenkoferi")
+petten_low = subset(ac, population_SNPs < 30)
+petten_subjects = unique(c(petten_low$Subject1, petten_low$Subject2))
+
+```
+
+Figure 3C
+```{r}
+st147$strain = "Klebsiella pneumoniae ST147"
+st307$strain = "Klebsiella pneumoniae ST307"
+st131$strain = "Escherichia col ST131"
+ST3775$strain = "Pseudomonas aeruginosa ST3775"
+ST447$strain = "Pseudomonas aeruginosa ST447"
+ST1142$strain = "Acinetobacter baumannii ST1142"
+ST25$strain = "Acinetobacter baumannii ST25"
+
+myorder = c("Klebsiella pneumoniae ST147", "Klebsiella pneumoniae ST307", "Escherichia col ST131",
+    "Pseudomonas aeruginosa ST3775", "Pseudomonas aeruginosa ST447", "Acinetobacter baumannii ST1142")
+
+inStrainDF = data.frame(rbind(st147, st307, st131, ST3775, ST447, ST1142))
+inStrainDF$log = log10(inStrainDF$population_SNPs)
+inStrainDF$strain = factor(inStrainDF$strain, levels=myorder)
+p = ggplot(inStrainDF, aes(log)) + geom_histogram() + facet_wrap(~strain)
+
+Fig3C = ggplot(inStrainDF, aes(population_SNPs)) + 
+  geom_histogram() + 
+  facet_wrap(~strain, scales="free_y", ncol=1) +
+  theme_minimal() + theme(strip.text = element_text(face="italic")) +
+  geom_vline(xintercept = 30, color="red", linetype="dashed", size=1) +
+  xlab("Population SNPs")
+  
+```
+
+
+Staph Epi - 9 STs identified, 2 shared
+```{r}
+ac = subset(dat, species=="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(ac)
+p = plot_histogram(df=ac,  species="Staphylococcus epidermidis")
+
+
+#####
+paST = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable8.csv") %>%
+  subset(., species=="Staphylococcus epidermidis")
+mysts = unique(paST$ST)
+
+#ST2 - 17 subjects
+myST = subset(paST, ST==2)
+myST_samples = unique(myST$library_id)
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species=paste0("Staphylococcus epidermidisi ST", mysts[1]))
+
+lowST2 = subset(myST_df, population_SNPs < 30 )
+sumstatz = get_data_summary(lowST2)
+
+
+
+#ST23 - 2 subjects > 10 SNPs
+myST = subset(paST, ST==23)
+myST_samples = unique(myST$library_id)
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species=paste0("Staphylococcus epidermidisi ST", mysts[2]))
+
+#ST69 - 1 sample
+myST = subset(paST, ST==69)
+myST_samples = unique(myST$library_id)
+
+#ST83 - 2 samples; 2 subjects
+myST = subset(paST, ST==83)
+myST_samples = unique(myST$library_id)
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species=paste0("Staphylococcus epidermidisi ST", mysts[4]))
+
+#ST280 - 2 subjects > 10 snps
+myST = subset(paST, ST==280)
+myST_samples = unique(myST$library_id)
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species=paste0("Staphylococcus epidermidisi ST", mysts[5]))
+
+#ST676 - "Subject_4"  "Subject_53" "Subject_3"  "Subject_11" "Subject_26" "Subject_33" "Subject_49" "Subject_38"
+myST = subset(paST, ST==676)
+myST_samples = unique(myST$library_id)
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis")
+sumstatz = get_data_summary(myST_df)
+p = plot_histogram(df=myST_df, species=paste0("Staphylococcus epidermidisi ST", mysts[6]))
+myST_df = subset(dat2, sample1 %in% myST_samples & sample2 %in% myST_samples) %>%
+  subset(., species =="s__Staphylococcus epidermidis") %>%
+  subset(., population_SNPs < 10)
+mysubjects = unique(c(myST_df$Subject1, myST_df$Subject2))
+
+#ST781 -1 sample
+myST = subset(paST, ST==781)
+myST_samples = unique(myST$library_id)
+
+#ST59 -1 sample;; subject 30
+myST = subset(paST, ST==59)
+myST_samples = unique(myST$library_id)
+
+```
+
+
+### do we see sharing among commensals more broadly than those that can be typed
+
+
+```{r}
+commensals = read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/commensals.csv")
+myspecies = commensals$species
+not_shared <- c(myspecies[2], myspecies[4],myspecies[5],myspecies[9], myspecies[11], myspecies[16])
+commensals = subset(commensals, !(species %in% not_shared))
+myspecies = commensals$species
+
+#find the shared commensal species, examining only cases where > 80% is compared
+commenalsDF = subset(dat2, species %in% myspecies) %>%
+  subset(., percent_compared > 0.8)
+
+
+###plot histograms 
+CommenalsSupFig = ggplot(commenalsDF, aes(population_SNPs)) + geom_histogram() +
+  facet_wrap(~species, scales="free_y") + theme_classic() + xlim(0, 10)
+
+#summarize the # of subjects for each species
+holder <- vector("list", length(myspecies))
+for(i in 1:length(myspecies)) {
+  mysubsetx = subset(commenalsDF, species==myspecies[i])
+  df =data.frame(shared=unique(c(mysubsetx$Subject1, mysubsetx$Subject2)))
+  df$species = myspecies[i]
+  holder[[i]] =  df
+}
+
+shared_commensals = do.call(rbind, holder)
+N = shared_commensals %>% group_by(species) %>% tally()
+not_shared_commensals = data.frame(species=not_shared)
+not_shared_commensals$n = 0
+
+N = data.frame(rbind(N, not_shared_commensals))
+
+## summarize the % compared for each species
+percent_compared = doBy::summary_by(percent_compared~species, FUN=c(length, mean, median, min, max), data=commenalsDF)
+colnames(percent_compared) = c("species","N.sample.paris", "Mean Percent Compared", "Median Percent Compared", "Minimum Percent Compared", "Maximum Percent Compared")
+commensal_summary = dplyr::full_join(percent_compared, N)
+```
+
+
+
+### Generate Figure 3
+ESKAPE pathogens. A) Network analysis of pairwise ANI for each species. Each node (large dot) represents a MAG. Lines between nodes signify that pairwise ANI are > 99.95%. Line lengths are not quantitative. Colors correspond to distinct subjects. B) phylogenetic tree based on amino acid alignment of 172 translated single-copy marker genes for 54 K. pneumoniae MAGs integrated with publicly available K. pneumoniae genomes matching sequence types identified in the facility. C) Histograms displaying the number of sample pairs (y-axis) that differ by the number of SNPs (x-axis) for each species where sharing between 3 individuals was identified, as determined by inStrain, a read-based approach developed for metagenomes. The red line demarcates 30 SNPs. Subjects 2, 4, 28 and 48 were roommates, as were subjects 14, 23, 5, and 15. 
+
+
+```{r, fig.height=14, fig.width=12}
+Fig3= cowplot::plot_grid(Fig3A, Fig3B, Fig3C, ncol=3, labels=c("A", "B", "C"),
+                               rel_widths = c(0.8, 0.9, 0.6))
+
+Fig3
+ggsave(Fig3, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/Figure3.pdf", height = 8.5, width = 11)
+```
+
+
+### Supplementary Figure 14: Plot SNP histograms where SNPs were called using Snippy 
+
+The distance matrix between samples was generated with snp-dists on a cleaned alignment. All samples with more than 25% Ns were dropped and SNPs have been corrected for recombination via gubbins.
+
+Supplementary Figure 14: Histograms displaying the number of sample pairs (y-axis) that differ by the number of recombination-corrected SNPs (x-axis) for each species where sharing between multiple individuals was identified, as determined by Snippy, a read-based approach developed for whole genome sequences.  The red line demarcates 30 SNPs.
+
+```{r, eval=TRUE}
+make_snippy_histogram <- function(file, species){
+  mymatrix = data.table::fread(paste0(file))
+  rownames(mymatrix) = mymatrix$`snp-dists 0.8.2`
+  mymatrix$`snp-dists 0.8.2` = NULL
+  mymatrix$Reference = NULL
+  mymatrix$Sample1 = rownames(mymatrix)
+  acM = melt(mymatrix, "Sample1")
+  acM = subset(acM, Sample1 != variable)
+  colnames(acM)[2] = "Sample2"
+  acM_annotated = plyr::join(acM, map1) %>%
+    plyr::join(., map2)
+  diffSub = subset(acM_annotated, Unique_ptid1 != Unique_ptid2) %>%
+    subset(., value < 100)
+p = ggplot(diffSub, aes(value)) + geom_histogram() + ggtitle(paste0(species)) +
+  geom_vline(xintercept = 30, color="red", linetype="dashed")
+return(p)
+}
+
+#annotate with sample information
+map =read.csv("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable2_metagenomesummaries_v3.csv")
+#merge the IMP file with the metadata so we know what samples we're comparing
+#we annotate sample 1 first
+ map1 = map %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+        map1$Sample1 = map1$library_id
+        colnames(map1) = c("library1", "Unique_ptid1", "site1", "survey1", "Sample1")
+       
+ map2 = map %>%
+        dplyr::select(., c("library_id", "Unique_ptid", "site_specific", "Survey_Period"))
+        map2$Sample2 = map2$library_id
+        colnames(map2) = c("library2", "Unique_ptid2", "site2", "survey2", "Sample2")
+        myani3 = merge(myani2, map2)
+
+        
+ec_plot=make_snippy_histogram(file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.filtered_polymorphic_sites.fasta.clean_ecoli_matrix.txt", species="E. coli")
+
+kp_plot = make_snippy_histogram("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.filtered_polymorphic_sites.fasta.clean_kpest147_matrix.txt", species="K. pneumoniae")
+
+
+pa_plot = make_snippy_histogram("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.filtered_polymorphic_sites.fasta.clean_pseudomonas.matrix.txt", species="P. aeruginosa")
+
+
+pm_largeplot=make_snippy_histogram(file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.filtered_polymorphic_sites.fasta.clean_mirabilis_matrix.txt", species="P.mirabilis (large cluster)")
+
+
+petten_plot = make_snippy_histogram("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.aln.filtered_polymorphic_sites.fasta.clean_petten.matrix.txt", species="S. pettenkoferi")
+
+
+stuartii_plot = make_snippy_histogram("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.filtered_polymorphic_sites.fasta.clean_stuartii_matrix.txt", species="P. stuartii")
+
+ac_plot=make_snippy_histogram(file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/clean.core.full.filtered_polymorphic_sites.fasta.acinetobacter_matrix.txt", species="A. baumanii")
+
+mm_plot=make_snippy_histogram(file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.aln.clean.matrix_morganella_large_cluster.txt", species="M. morganii")
+
+ca_plot = make_snippy_histogram(file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/27_snippy/core.full.aln.clean.matrix_auris.txt", species="C. auris")
+
+
+ggsave(cowplot::plot_grid(ac_plot, ec_plot, kp_plot, pa_plot, mm_plot, pm_largeplot, stuartii_plot, petten_plot, ca_plot, ncol=3), file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure14.png", width = 11, height = 8)
+```
+
+### Supplementary Table 8: let's get the summary stats for the number of SNPs
+
+```{r, eval=FALSE}
+
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+#get the summary stats for the numbers of snps
+ac_summary = summary(ac_plot$data$value)
+length(unique(ac_plot$data$Sample1, ac_plot$data$Sample2)) #16
+ec_summary = summary(ec_plot$data$value)
+length(unique(ec_plot$data$Sample1, ec_plot$data$Sample2)) #21
+kp_summary = summary(kp_plot$data$value)
+length(unique(kp_plot$data$Sample1, kp_plot$data$Sample2)) #45
+
+mm_summary = summary(mm_plot$data$value)
+length(unique(mm_plot$data$Sample1, mm_plot$data$Sample2)) #21
+
+pa_summary = summary(pa_plot$data$value)
+length(unique(pa_plot$data$Sample1, pa_plot$data$Sample2)) #6
+
+sp_summary = summary(petten_plot$data$value)
+length(unique(petten_plot$data$Sample1, petten_plot$data$Sample2)) #78
+
+ps_summary = summary(stuartii_plot$data$value)
+length(unique(stuartii_plot$data$Sample1, stuartii_plot$data$Sample2)) #102
+
+pm_summary = summary(pm_largeplot$data$value)
+length(unique(pm_largeplot$data$Sample1, pm_largeplot$data$Sample2)) #36
+
+
+ca_summary = summary(ca_plot$data$value)
+length(unique(ca_plot$data$Sample1, ca_plot$data$Sample2)) #36
+
+snp_summary = data.frame(rbind(ac_summary,
+                               ec_summary, 
+                               kp_summary, 
+                               mm_summary, 
+                               pa_summary, 
+                               sp_summary,
+                               ps_summary,
+                               pm_summary))
+
+kable(snp_summary)
+#write.csv(snp_summary, file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryTable10.csv")
+```
+
+### Supplementary Figure 13: pan-genome vs. core-genome distance clustering
+Supplementary Figure 13: t-Stochastic Neighbor Embedding (t-SNE) clustering of pan-genome vs. core-genome distance. Left Panel: ST131 E.coli gene presence/absence profiles indicate the presence of two clusters of ST131, consistent with the SNP analysis. Right Panel: ST147 K. pneumoniae gene presence/absence profiles do not split into multiple clusters.
+
+```{r}
+library(panstripe)
+roary = read.table("~/gene_presence_absence_roary_ecoli.Rtab", header=TRUE)
+rownames(roary) = roary$Gene
+roary$Gene = NULL
+
+roaryM = t(roary)
+
+tre = ape::read.tree("~/core_gene_alignment.node_labelled.final_tree_roary_ecoli.tre")
+
+out = panstripe(roaryM, tre, family='gaussian')
+plot_pangenome_cumulative(out)
+p1 = plot_tsne(roaryM)
+# look at only those genes that vary
+variable_genes <- colnames(roaryM)[apply(roaryM, 2, sd) > 0]
+
+plot_tree_pa(tree = tre, pa = roaryM, genes = variable_genes, label_genes = FALSE, cols = "black",
+             order=TRUE)
+```
+
+
+kpe
+```{r}
+roary = read.table("~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/32_panaroo/gene_presence_absence_kpe_roary.Rtab", header=TRUE)
+rownames(roary) = roary$Gene
+roary$Gene = NULL
+
+roaryM = t(roary)
+
+tre = ape::read.tree("~/core_gene_alignment.node_labelled.final_tree_kpe_roary.tre")
+out = panstripe(roaryM, tre, family='gaussian')
+p2 = plot_tsne(roaryM)
+# look at only those genes that vary
+variable_genes <- colnames(roaryM)[apply(roaryM, 2, sd) > 0]
+
+plot_tree_pa(tree = tre, pa = roaryM, genes = variable_genes, label_genes = FALSE, cols = c("gray", "black"),
+             order=TRUE)
+
+
+grid.arrange(p1, p2, ncol=2)
+ggsave(
+grid.arrange(p1, p2, ncol=2), file="~/Desktop/NATURE/ABX_SAMPLES/Manuscript/Submission2/figures/SupplementaryFigure13.png", width = 6, height = 3)
+
+```
