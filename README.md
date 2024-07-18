@@ -21,6 +21,8 @@ Affiliations:
 +  These authors contributed equally
 * Correspondence: jsegre at nhgri.nih.gov, mhayden at rush.edu
 
+Bash scripts were optimized with the help of chatGPT
+
 Keywords: Candida auris, antibiotic resistance, microbiome, ESKAPE pathogens, uropathogens, metagenomic-assembled genome, infection control, nursing home
 
  
