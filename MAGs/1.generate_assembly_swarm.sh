@@ -40,23 +40,33 @@ mkdir -p "$SPADES_LOG_DIR"
 echo "Creating megahit.sh script..."
 cat << EOF > "$MEGAHIT_ASSEMBLY_DIR/megahit.sh"
 #!/usr/bin/bash
-cd $MEGAHIT_ASSEMBLY_DIR
+
+# Check if the correct number of arguments is provided
+if [ "\$#" -ne 3 ]; then
+    echo "Usage: \$0 <read1> <read2> <output>"
+    exit 1
+fi
+
 READ1=\$1
 READ2=\$2
 OUTPUT=\$3
+
+# Load the megahit module
 module load megahit
-mkdir -p \$OUTPUT  # Ensure the output directory exists
 if [ \$? -ne 0 ]; then
-    echo "Failed to create output directory \$OUTPUT"
+    echo "Failed to load megahit module"
     exit 1
 fi
+
+# Run megahit
 megahit -1 \${READ1} -2 \${READ2} -o \${OUTPUT} --memory $MEMORY -t $THREADS
 if [ \$? -ne 0 ]; then
     echo "Megahit failed for \$OUTPUT"
     exit 1
 fi
-EOF
 
+echo "Megahit completed successfully for \$OUTPUT"
+EOF
 # Check if megahit.sh was created successfully
 if [[ -f "$MEGAHIT_ASSEMBLY_DIR/megahit.sh" ]]; then
     echo "megahit.sh script created successfully."
