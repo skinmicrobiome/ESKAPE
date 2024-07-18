@@ -9,7 +9,8 @@ MEGAHIT_ASSEMBLY_DIR="$BASE_DIR/data/01_assembly/01_assembly_megahit"
 SPADES_ASSEMBLY_DIR="$BASE_DIR/data/01_assembly/01_assembly_spades"
 MEGAHIT_SWARM_FILE="$MEGAHIT_ASSEMBLY_DIR/megahit.swarm"
 SPADES_SWARM_FILE="$SPADES_ASSEMBLY_DIR/spades.swarm"
-LOG_DIR="$BASE_DIR/data/01_assembly/swarm_logs"
+MEGAHIT_LOG_DIR="$BASE_DIR/data/01_assembly/megahit_swarm_logs"
+SPADES_LOG_DIR="$BASE_DIR/data/01_assembly/spades_swarm_logs"
 
 # Lists for MegaHit
 MEGAHIT_FINAL_CONTIGS_LIST="$MEGAHIT_ASSEMBLY_DIR/final_contigs_list.txt"
@@ -29,9 +30,11 @@ JOB_NAME="assembly"
 echo "Starting the script..."
 
 # Create directories if they do not exist
+echo "Creating directories..."
 mkdir -p "$MEGAHIT_ASSEMBLY_DIR"
 mkdir -p "$SPADES_ASSEMBLY_DIR"
-mkdir -p "$LOG_DIR"
+mkdir -p "$MEGAHIT_LOG_DIR"
+mkdir -p "$SPADES_LOG_DIR"
 
 # Create megahit.sh script
 echo "Creating megahit.sh script..."
@@ -42,7 +45,16 @@ READ1=\$1
 READ2=\$2
 OUTPUT=\$3
 module load megahit
-/usr/bin/time -v megahit -1 \${READ1} -2 \${READ2} -o \${OUTPUT} --memory $MEMORY -t $THREADS 2> \${OUTPUT}/time.log
+mkdir -p \$OUTPUT  # Ensure the output directory exists
+if [ \$? -ne 0 ]; then
+    echo "Failed to create output directory \$OUTPUT"
+    exit 1
+fi
+megahit -1 \${READ1} -2 \${READ2} -o \${OUTPUT} --memory $MEMORY -t $THREADS
+if [ \$? -ne 0 ]; then
+    echo "Megahit failed for \$OUTPUT"
+    exit 1
+fi
 EOF
 
 # Check if megahit.sh was created successfully
@@ -66,7 +78,16 @@ READ1=\$1
 READ2=\$2
 OUTPUT=\$3
 module load spades
-/usr/bin/time -v spades.py --meta -1 \${READ1} -2 \${READ2} -o \${OUTPUT} -t $THREADS -m $MEMORY 2> \${OUTPUT}/time.log
+mkdir -p \$OUTPUT  # Ensure the output directory exists
+if [ \$? -ne 0 ]; then
+    echo "Failed to create output directory \$OUTPUT"
+    exit 1
+fi
+spades.py --meta -1 \${READ1} -2 \${READ2} -o \${OUTPUT} -t $THREADS -m $MEMORY
+if [ \$? -ne 0 ]; then
+    echo "SPAdes failed for \$OUTPUT"
+    exit 1
+fi
 EOF
 
 # Check if spades.sh was created successfully
@@ -159,73 +180,20 @@ fi
 
 # Submit swarm jobs with user-specified settings
 echo "Submitting Megahit swarm jobs with user-specified settings..."
-megahit_swarmid=$(swarm -f $MEGAHIT_SWARM_FILE -g $MEMORY -t $THREADS --time $TIME --job-name "${JOB_NAME}_megahit" --logdir $LOG_DIR)
+megahit_swarmid=$(swarm -f $MEGAHIT_SWARM_FILE -g $MEMORY -t $THREADS --time $TIME --job-name "${JOB_NAME}_megahit" --logdir $MEGAHIT_LOG_DIR --module megahit)
 
 echo "Submitting Spades swarm jobs with user-specified settings..."
-spades_swarmid=$(swarm -f $SPADES_SWARM_FILE -g $MEMORY -t $THREADS --time $TIME --job-name "${JOB_NAME}_spades" --logdir $LOG_DIR)
+spades_swarmid=$(swarm -f $SPADES_SWARM_FILE -g $MEMORY -t $THREADS --time $TIME --job-name "${JOB_NAME}_spades" --logdir $SPADES_LOG_DIR --module spades)
 
-# Check if swarm jobs were submitted successfully
-if [[ -z "$megahit_swarmid" ]]; then
-    echo "Failed to submit Megahit swarm jobs."
-    exit 1
+# Verify swarm submission
+if [[ -n "$megahit_swarmid" ]]; then
+    echo "Megahit swarm job submitted successfully with ID $megahit_swarmid."
 else
-    echo "Megahit swarm jobs submitted with ID $megahit_swarmid"
+    echo "Failed to submit Megahit swarm job."
 fi
 
-if [[ -z "$spades_swarmid" ]]; then
-    echo "Failed to submit Spades swarm jobs."
-    exit 1
+if [[ -n "$spades_swarmid" ]]; then
+    echo "Spades swarm job submitted successfully with ID $spades_swarmid."
 else
-    echo "Spades swarm jobs submitted with ID $spades_swarmid"
+    echo "Failed to submit Spades swarm job."
 fi
-
-# Wait for swarm jobs to finish
-echo "Waiting for Megahit swarm jobs to finish..."
-while squeue -u $USER -j $megahit_swarmid > /dev/null 2>&1; do
-    sleep 60
-done 
-
-echo "Waiting for Spades swarm jobs to finish..."
-while squeue -u $USER -j $spades_swarmid > /dev/null 2>&1; do
-    sleep 60
-done
-
-# Check if the assembly directories exist before finding final contigs
-if [[ -d "$MEGAHIT_ASSEMBLY_DIR" ]]; then
-    # Create list of final contigs for Megahit
-    echo "Creating list of final contigs for Megahit..."
-    find $MEGAHIT_ASSEMBLY_DIR -name "final.contigs.fa" > $MEGAHIT_FINAL_CONTIGS_LIST
-
-    # Check if final contigs list was created successfully
-    if [[ -s "$MEGAHIT_FINAL_CONTIGS_LIST" ]]; then
-        echo "Final contigs list created at $MEGAHIT_FINAL_CONTIGS_LIST"
-    else
-        echo "No final contigs files found for Megahit."
-    fi
-else
-    echo "Megahit assembly directory $MEGAHIT_ASSEMBLY_DIR does not exist."
-    exit 1
-fi
-
-if [[ -d "$SPADES_ASSEMBLY_DIR" ]]; then
-    # Create list of final contigs for Spades
-    echo "Creating list of final contigs for Spades..."
-    find $SPADES_ASSEMBLY_DIR -name "contigs.fasta" > $SPADES_FINAL_CONTIGS_LIST
-
-    # Check if final contigs list was created successfully
-    if [[ -s "$SPADES_FINAL_CONTIGS_LIST" ]]; then
-        echo "Final contigs list created at $SPADES_FINAL_CONTIGS_LIST"
-    else
-        echo "No final contigs files found for Spades."
-    fi
-else
-    echo "Spades assembly directory $SPADES_ASSEMBLY_DIR does not exist."
-    exit 1
-fi
-
-# Analyze time.log files to determine resource usage
-echo "Analyzing time.log files for resource usage..."
-grep "Elapsed (wall clock) time" $MEGAHIT_ASSEMBLY_DIR/*/time.log
-grep "Maximum resident set size" $MEGAHIT_ASSEMBLY_DIR/*/time.log
-grep "Elapsed (wall clock) time" $SPADES_ASSEMBLY_DIR/*/time.log
-grep "Maximum resident set size" $SPADES_ASSEMBLY_DIR/*/time.log
