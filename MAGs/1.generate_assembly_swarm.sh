@@ -207,3 +207,38 @@ if [[ -n "$spades_swarmid" ]]; then
 else
     echo "Failed to submit Spades swarm job."
 fi
+
+# Check if the assembly directories exist before finding final contigs
+if [[ -d "$MEGAHIT_ASSEMBLY_DIR" ]]; then
+    # Create list of final contigs for Megahit
+    echo "Creating list of final contigs for Megahit..."
+    find $MEGAHIT_ASSEMBLY_DIR -name "final.contigs.fa" > $MEGAHIT_FINAL_CONTIGS_LIST
+
+    # Check if final contigs list was created successfully
+    if [[ -s "$MEGAHIT_FINAL_CONTIGS_LIST" ]]; then
+        echo "Final contigs list created at $MEGAHIT_FINAL_CONTIGS_LIST"
+    else
+        echo "No final contigs files found for Megahit."
+    fi
+else
+    echo "Megahit assembly directory $MEGAHIT_ASSEMBLY_DIR does not exist."
+    exit 1
+fi
+
+if [[ -d "$SPADES_ASSEMBLY_DIR" ]]; then
+    # Create list of final contigs for Spades
+    echo "Creating list of final contigs for Spades..."
+    find $SPADES_ASSEMBLY_DIR -name "contigs.fasta" > $SPADES_FINAL_CONTIGS_LIST
+
+    # Check if final contigs list was created successfully
+    if [[ -s "$SPADES_FINAL_CONTIGS_LIST" ]]; then
+        echo "Final contigs list created at $SPADES_FINAL_CONTIGS_LIST"
+    else
+        echo "No final contigs files found for Spades."
+    fi
+else
+    echo "Spades assembly directory $SPADES_ASSEMBLY_DIR does not exist."
+    exit 1
+fi
+
+
